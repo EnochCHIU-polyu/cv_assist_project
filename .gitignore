@@ -1,0 +1,7 @@
+# ignore virtual environments and caches
+.venv/
+venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
