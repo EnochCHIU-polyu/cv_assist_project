@@ -32,25 +32,56 @@
 1. **环境准备**  
    ```bash
    cd cv_assist_project
-   python -m venv .venv           # 可选：创建虚拟环境到隐藏目录
-   .\.venv\Scripts\activate       # Windows 下激活
+   # 可选：创建 Python 虚拟环境并激活
+   python -m venv .venv           # 仅第一次或当需要隔离依赖时
+   # Windows PowerShell
+   .\.venv\Scripts\Activate.ps1
+   # Windows cmd
+   call .venv\Scripts\activate
+   # Linux / macOS
+   source .venv/bin/activate
+
    pip install -r requirements.txt
    ```
+   > 🔧 如果你希望脚本自动完成以上步骤，可使用仓库根目录下的 `run.sh`（bash）或新增的 `run.bat`（Windows）。
 
 2. **配置**  
    - 编辑 `config.py` 修改输入源、模型路径等参数（如需）。
 
 3. **运行**  
    ```bash
+   # 直接执行
    python main.py
+   # 或使用运行脚本（见上文）
+   ./run.sh       # Linux/macOS
+   run.bat        # Windows cmd
    ```
    程序将加载检测器，打开摄像头/视频流并在画面上叠加检测结果与深度信息。
+
+   启动后会看到类似下面的输出：
+   ```
+   ============================================================
+    CV 视觉辅助系统
+   ============================================================
+    OWL-ViT: google/owlvit-base-patch32
+    MiDaS: MiDaS_small
+    设备: cpu
+    FP16: False
+   ============================================================
+   …
+   控制：
+     q - 退出
+     d - 切换深度显示
+   检测目标: ['a cup', 'a bottle']
+   ```
+   - 按 `d` 切换深度渲染，按 `q` 退出窗口。
 
 4. **测试**  
    验证功能是否正常：
    ```bash
    python test_all.py
    ```
+
 
 ---
 
