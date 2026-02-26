@@ -15,7 +15,10 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import SystemConfig, get_fast_config, get_balanced_config
+from config import (
+    SystemConfig,
+    get_config_by_profile,
+)
 from detectors.owl_vit_detector import OWLViTDetector
 from detectors.hand_tracker import HandTracker
 from detectors.depth_estimator import DepthEstimator
@@ -23,6 +26,16 @@ from core.guidance import GuidanceController, GuidanceResult
 from utils.logger import setup_logging, FPSCounter
 
 logger = logging.getLogger(__name__)
+
+# 音频模块（可选）
+try:
+    from audio.asr import ASREngine
+    from audio.tts import TTSEngine
+    from audio.audio_utils import AudioRecorder
+    AUDIO_AVAILABLE = True
+except ImportError:
+    AUDIO_AVAILABLE = False
+    logger.warning("音频模块未安装，ASR/TTS功能将不可用")
 
 
 @dataclass
@@ -95,6 +108,16 @@ class CVAssistSystem:
             logger.error(f"组件初始化失败: {e}", exc_info=True)
             raise RuntimeError(f"系统初始化失败: {e}")
         
+        # 初始化音频模块（如果启用）
+        self.asr_engine = None
+        self.tts_engine = None
+        self.audio_recorder = None
+        
+        if AUDIO_AVAILABLE:
+            self._init_audio_components()
+        elif self.config.audio.enable_asr or self.config.audio.enable_tts:
+            logger.warning("音频模块不可用，请安装依赖: pip install openai-whisper pyttsx3 sounddevice")
+        
         # 初始化计数器和缓存
         self.frame_count = 0        # 已处理的帧数
         self.cached_detections = []  # 缓存的检测结果（用于跳帧）
@@ -158,6 +181,47 @@ class CVAssistSystem:
         )
         
         logger.info("所有组件初始化成功")
+    
+    def _init_audio_components(self):
+        """初始化音频组件 (ASR 和 TTS)"""
+        cfg = self.config.audio
+        
+        # 初始化 ASR
+        if cfg.enable_asr:
+            try:
+                logger.info("正在初始化 ASR 引擎...")
+                self.asr_engine = ASREngine(
+                    model_name=cfg.whisper_model,
+                    device=self.config.optimization.device,
+                    language=cfg.asr_language
+                )
+                
+                # 初始化录音器
+                self.audio_recorder = AudioRecorder(
+                    sample_rate=cfg.record_sample_rate,
+                    channels=1,
+                    dtype='float32'
+                )
+                
+                logger.info("ASR 引擎初始化成功")
+            except Exception as e:
+                logger.error(f"ASR 引擎初始化失败: {e}")
+                self.asr_engine = None
+                self.audio_recorder = None
+        
+        # 初始化 TTS
+        if cfg.enable_tts:
+            try:
+                logger.info("正在初始化 TTS 引擎...")
+                self.tts_engine = TTSEngine(
+                    rate=cfg.tts_rate,
+                    volume=cfg.tts_volume,
+                    async_mode=cfg.tts_async
+                )
+                logger.info("TTS 引擎初始化成功")
+            except Exception as e:
+                logger.error(f"TTS 引擎初始化失败: {e}")
+                self.tts_engine = None
     
     def process_frame(self, frame: np.ndarray,
                       queries: Optional[List[str]] = None) -> FrameResult:
@@ -295,6 +359,77 @@ class CVAssistSystem:
         
         return output
     
+    def _handle_voice_input(self):
+        """
+        处理语音输入
+        
+        录制用户语音，使用 ASR 转录，解析指令并更新检测目标
+        """
+        try:
+            if self.tts_engine:
+                self.tts_engine.speak("正在录音，请说出您要找的物品")
+            logger.info("=== 开始语音录制 ===")
+            
+            # 录制音频
+            cfg = self.config.audio
+            if cfg.auto_detect_silence:
+                logger.info(f"录音中... (自动检测静音，最长 {cfg.record_duration}s)")
+                audio = self.audio_recorder.record_until_silence(
+                    max_duration=cfg.record_duration,
+                    silence_threshold=cfg.silence_threshold,
+                    silence_duration=cfg.silence_duration
+                )
+            else:
+                logger.info(f"录音中... ({cfg.record_duration}s)")
+                audio = self.audio_recorder.record(cfg.record_duration)
+            
+            if len(audio) == 0:
+                logger.warning("未录制到音频")
+                if self.tts_engine:
+                    self.tts_engine.speak("未录制到音频，请重试")
+                return
+            
+            logger.info(f"录音完成，开始识别...")
+            if self.tts_engine:
+                self.tts_engine.speak("正在识别")
+            
+            # 语音识别
+            result = self.asr_engine.transcribe_audio(audio, cfg.record_sample_rate)
+            text = result.get('text', '').strip()
+            
+            if not text:
+                logger.warning("识别结果为空")
+                if self.tts_engine:
+                    self.tts_engine.speak("没有识别到内容，请重试")
+                return
+            
+            logger.info(f"识别结果: '{text}'")
+            
+            # 解析指令，提取目标物体
+            target = self.asr_engine.parse_command(text)
+            
+            if target:
+                # 更新检测目标
+                self.config.target_queries = [target]
+                logger.info(f"检测目标已更新为: {target}")
+                
+                if self.tts_engine:
+                    self.tts_engine.speak(f"正在寻找{target}")
+                
+                # 清空缓存的检测结果，强制重新检测
+                self.cached_detections = []
+            else:
+                logger.warning(f"无法解析指令: '{text}'")
+                if self.tts_engine:
+                    self.tts_engine.speak("抱歉，无法理解您的指令")
+            
+            logger.info("=== 语音录制结束 ===")
+            
+        except Exception as e:
+            logger.error(f"语音输入处理失败: {e}", exc_info=True)
+            if self.tts_engine:
+                self.tts_engine.speak("语音识别出错")
+    
     def run(self, camera_id: int = 0):
         """
         运行视觉辅助系统主循环
@@ -304,12 +439,20 @@ class CVAssistSystem:
         控制键:
         - 'q': 退出程序
         - 'd': 切换深度图显示
+        - 'v': 开始语音输入 (如果启用了ASR)
         
         参数:
             camera_id: 摄像头 ID，默认 0
         """
         logger.info("启动 CV 视觉辅助系统")
         logger.info(f"控制: q - 退出, d - 切换深度显示")
+        
+        if self.asr_engine:
+            logger.info(f"       v - 语音输入 (ASR 已启用)")
+        if self.tts_engine:
+            logger.info(f"TTS 已启用，将自动播放引导指令")
+            self.tts_engine.speak("语音播报已开启")
+        
         logger.info(f"检测目标: {self.config.target_queries}")
         
         # 尝试打开摄像头，带异常处理
@@ -365,6 +508,13 @@ class CVAssistSystem:
                     result = self.process_frame(frame)
                     frame_counter += 1
                     
+                    # 如果启用了TTS且有引导指令，播放语音
+                    if self.tts_engine and result.guidance:
+                        # 避免重复播放相同的指令
+                        if not hasattr(self, '_last_instruction') or self._last_instruction != result.guidance.instruction:
+                            self.tts_engine.speak_instruction(result.guidance.instruction)
+                            self._last_instruction = result.guidance.instruction
+                    
                     # 每 100 帧记录一次统计
                     if self.fps_counter and frame_counter % 100 == 0:
                         stats = self.fps_counter.get_stats()
@@ -404,6 +554,12 @@ class CVAssistSystem:
                 elif key == ord('d'):
                     show_depth = not show_depth
                     logger.info(f"深度显示: {'开启' if show_depth else '关闭'}")
+                elif key == ord('v'):
+                    # 语音输入
+                    if self.asr_engine and self.audio_recorder:
+                        self._handle_voice_input()
+                    else:
+                        logger.warning("ASR 功能未启用")
         except KeyboardInterrupt:
             logger.info("收到键盘中断信号")
         except Exception as e:
@@ -429,12 +585,15 @@ class CVAssistSystem:
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', choices=['fast', 'balanced'], default='balanced')
-    parser.add_argument('--camera', type=int, default=0)
+    parser = argparse.ArgumentParser(description='CV 视觉辅助系统')
+    parser.add_argument('--config', choices=['fast', 'balanced', 'voice', 'tts'], 
+                       default='balanced',
+                       help='配置模式: fast=快速, balanced=平衡, voice=启用ASR+TTS, tts=仅启用TTS')
+    parser.add_argument('--camera', type=int, default=0,
+                       help='摄像头 ID')
     args = parser.parse_args()
-    
-    config = get_fast_config() if args.config == 'fast' else get_balanced_config()
+
+    config = get_config_by_profile(args.config)
     
     system = CVAssistSystem(config)
     system.run(args.camera)

@@ -54,6 +54,28 @@ class GuidanceConfig:
 
 
 @dataclass
+class AudioConfig:
+    """音频配置"""
+    # ASR (语音识别) 设置
+    enable_asr: bool = False  # 是否启用语音识别
+    whisper_model: str = "base"  # Whisper 模型 (tiny/base/small/medium/large)
+    asr_language: str = "zh"  # 识别语言 (zh=中文, en=英文)
+    
+    # TTS (文本转语音) 设置
+    enable_tts: bool = False  # 是否启用语音输出
+    tts_rate: int = 150  # 语速 (words per minute)
+    tts_volume: float = 1.0  # 音量 (0.0-1.0)
+    tts_async: bool = True  # 异步播放 (不阻塞主线程)
+    
+    # 录音设置
+    record_sample_rate: int = 16000  # 采样率 (Hz)
+    record_duration: float = 5.0  # 录音时长 (秒)
+    auto_detect_silence: bool = True  # 自动检测静音停止录音
+    silence_threshold: float = 0.01  # 静音阈值
+    silence_duration: float = 1.5  # 静音持续时长 (秒)
+
+
+@dataclass
 class LoggingConfig:
     """日志配置"""
     log_dir: str = "logs"
@@ -72,6 +94,7 @@ class SystemConfig:
     optimization: OptimizationConfig = field(default_factory=OptimizationConfig)
     guidance: GuidanceConfig = field(default_factory=GuidanceConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    audio: AudioConfig = field(default_factory=AudioConfig)
     
     target_queries: List[str] = field(default_factory=lambda: ["a cup", "a bottle"])
     camera_width: int = 640
@@ -91,3 +114,35 @@ def get_fast_config() -> SystemConfig:
 def get_balanced_config() -> SystemConfig:
     """平衡配置"""
     return SystemConfig()
+
+
+def get_voice_enabled_config() -> SystemConfig:
+    """启用语音功能的配置"""
+    config = SystemConfig()
+    config.audio.enable_asr = True
+    config.audio.enable_tts = True
+    config.audio.whisper_model = "base"  # 使用 base 模型平衡速度和准确性
+    config.audio.tts_rate = 180  # 稍快的语速
+    config.audio.tts_async = False
+    return config
+
+
+def get_tts_enabled_config() -> SystemConfig:
+    """仅启用 TTS 的配置"""
+    config = SystemConfig()
+    config.audio.enable_asr = False
+    config.audio.enable_tts = True
+    config.audio.tts_rate = 180
+    config.audio.tts_async = False
+    return config
+
+
+def get_config_by_profile(profile: str = "balanced") -> SystemConfig:
+    """根据配置名称获取系统配置。"""
+    profile_map = {
+        "fast": get_fast_config,
+        "balanced": get_balanced_config,
+        "voice": get_voice_enabled_config,
+        "tts": get_tts_enabled_config,
+    }
+    return profile_map.get(profile, get_balanced_config)()

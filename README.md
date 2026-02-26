@@ -21,7 +21,7 @@
   ├─ detectors/         # 各检测模块
   ├─ core/              # 系统集成与引导逻辑
   ├─ utils/             # 共用工具函数
-  ├─ test_all.py        # 单元/集成测试
+   ├─ tests/             # 测试脚本目录
   └─ README.md          # 当前文档
   ```
 
@@ -79,7 +79,7 @@
 4. **测试**  
    验证功能是否正常：
    ```bash
-   python test_all.py
+   python tests/test_all.py
    ```
 
 
@@ -90,8 +90,49 @@
 - **目标检测** 使用 OWL-ViT 模型识别图像中物体。
 - **手部追踪** MediaPipe 提供掌心和手指关键点坐标。
 - **深度估计** MiDaS 生成场景深度图，用于测距或增强理解。
+- **🎤 语音识别 (ASR)** 使用 OpenAI Whisper 将用户语音转换为文本指令。
+- **🔊 文本转语音 (TTS)** 将系统引导指令通过自然语言播放，帮助视觉障碍用户。
 - **模块化设计**：各 detector 互相独立，可扩展新算法或模型。
 - **简单的系统逻辑** 位于 `core/`，协调各模块输入输出，进行可视化展示。
+
+---
+
+## 🎤 音频功能（ASR & TTS）
+
+本系统现已集成语音识别和文本转语音功能，让视觉障碍用户可以：
+- 通过 **语音命令** 指定要寻找的目标物品
+- 通过 **语音播报** 接收系统的引导指令
+
+### 快速开始
+
+1. **安装音频依赖**
+   ```bash
+   pip install openai-whisper pyttsx3 sounddevice scipy
+   ```
+
+2. **测试音频功能**
+   ```bash
+   python tests/test_audio.py
+   ```
+
+3. **启用语音运行**
+   ```bash
+   # 使用语音配置（同时启用 ASR 和 TTS）
+   python main.py --config voice
+   
+   # 仅启用 TTS（ASR 关闭）
+   python main.py --config tts
+   ```
+
+4. **使用语音控制**
+   - 按 `v` 键开始语音输入
+   - 说出指令，如"找到杯子"或"where is the cup"
+   - 系统会自动识别并开始寻找目标
+   - 引导指令会通过语音播放（如"向左移动"、"向上移动"等）
+
+### 更多信息
+
+详细的音频功能使用指南请参考：[audio/README.md](audio/README.md)
 
 ---
 
@@ -100,7 +141,7 @@
 - **分支规范**：每个新功能以 feature/xxx 命名，提交说明清晰。
 - **代码风格**：遵循 PEP8，建议安装并使用 `flake8` 或 `black`。
 - **文档**：新增功能或改动请更新此 README 或 `doc/summary.md`。
-- **测试**：每次改动后运行 `test_all.py`，确保模块兼容无误。
+- **测试**：每次改动后运行 `tests/test_all.py`，确保模块兼容无误。
 
 ---
 
