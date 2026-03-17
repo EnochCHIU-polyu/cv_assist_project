@@ -1,4 +1,3 @@
-@@
 #!/usr/bin/env bash
 
 # Install project dependencies into the current Python environment (no virtualenv).
