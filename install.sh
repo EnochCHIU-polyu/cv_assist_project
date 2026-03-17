@@ -1,6 +1,8 @@
+@@
 #!/usr/bin/env bash
-python -m venv .venv
-source .venv/bin/activate
+
+# Install project dependencies into the current Python environment (no virtualenv).
+# Make sure you have activated your desired conda/pyenv environment before running this.
 pip install -r requirements.txt
 
-echo "Virtualenv created in .venv and dependencies installed."
+echo "Dependencies installed into current environment."

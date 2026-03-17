@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8
-source .venv/bin/activate
-python -X utf8 main.py
+
+# Use current Python environment (e.g. conda with CUDA)
+python -X utf8 main.py "$@"

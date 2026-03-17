@@ -58,8 +58,10 @@ class TTSEngine:
         self.voice_id = None
         self.backend = None
 
-        # Windows 优先使用 SAPI（稳定性更好）
-        if platform.system().lower() == 'windows' and SAPI_AVAILABLE:
+        # 后端选择策略：
+        # - 如果需要异步播放，则统一使用 pyttsx3（跨平台且已实现队列+工作线程）
+        # - 仅在 Windows 且明确为同步模式时才优先使用 SAPI
+        if platform.system().lower() == 'windows' and SAPI_AVAILABLE and not async_mode:
             self.backend = 'sapi'
             self.async_mode = False
         else:
