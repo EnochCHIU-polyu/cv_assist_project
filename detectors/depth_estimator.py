@@ -44,7 +44,8 @@ class DepthEstimator:
         else:
             self.device = device
         
-        self.use_fp16 = use_fp16 and (self.device == "cuda")
+        # 始终使用 FP32 在 GPU 上计算深度（避免 OpenCV 对 FP16 的兼容问题）
+        self.use_fp16 = False
         self.scale = scale
         
         logger.info(f"加载 MiDaS 模型: {model_name}")
@@ -55,8 +56,6 @@ class DepthEstimator:
             logger.info("下载/加载 MiDaS 模型...")
             # 从 PyTorch Hub 加载预训练模型
             self.model = torch.hub.load("intel-isl/MiDaS", model_name)
-            if self.use_fp16:
-                self.model = self.model.half()  # 转换为 FP16 提升性能
             self.model = self.model.to(self.device).eval()  # 移动到设备并设置为评估模式
             logger.info("MiDaS 模型加载成功")
         except Exception as e:
@@ -133,7 +132,8 @@ class DepthEstimator:
                 ).squeeze()
             
             # 将深度图从 GPU 移动到 CPU 并转换为 numpy 数组
-            depth = prediction.cpu().numpy()
+            # 始终转为 float32，避免 OpenCV 对 float16 不兼容导致的 resize 错误
+            depth = prediction.cpu().float().numpy()
             # 标准化深度值到 [0, 1] 区间
             # MiDaS 输出的是相对深度，需要归一化
             d_min, d_max = depth.min(), depth.max()
@@ -144,7 +144,18 @@ class DepthEstimator:
             
             # 如果之前进行了缩放，将深度图放大回原始尺寸
             if self.scale < 1.0:
-                depth = cv2.resize(depth, (orig_w, orig_h))
+                # 安全检查，避免 OpenCV 对空数组或异常维度报错
+                if depth is None or depth.size == 0:
+                    logger.error("MiDaS 返回空深度图，使用全零深度图代替")
+                    return np.zeros((orig_h, orig_w), dtype=np.float32)
+                if depth.ndim != 2:
+                    logger.error(f"MiDaS 深度图维度异常: shape={depth.shape}，期望二维数组，使用全零深度图代替")
+                    return np.zeros((orig_h, orig_w), dtype=np.float32)
+                try:
+                    depth = cv2.resize(depth, (orig_w, orig_h))
+                except cv2.error as ce:
+                    logger.error(f"OpenCV resize 深度图失败: {ce}，改用全零深度图", exc_info=True)
+                    return np.zeros((orig_h, orig_w), dtype=np.float32)
             
             return depth
             

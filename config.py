@@ -123,7 +123,8 @@ def get_voice_enabled_config() -> SystemConfig:
     config.audio.enable_tts = True
     config.audio.whisper_model = "base"  # 使用 base 模型平衡速度和准确性
     config.audio.tts_rate = 180  # 稍快的语速
-    config.audio.tts_async = False
+    # 语音交互场景下，为避免阻塞摄像头主循环，启用异步 TTS
+    config.audio.tts_async = True
     return config
 
 
@@ -133,7 +134,8 @@ def get_tts_enabled_config() -> SystemConfig:
     config.audio.enable_asr = False
     config.audio.enable_tts = True
     config.audio.tts_rate = 180
-    config.audio.tts_async = False
+    # 仅 TTS 模式同样使用异步播放，避免画面卡顿
+    config.audio.tts_async = True
     return config
 
 
