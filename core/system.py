@@ -131,8 +131,10 @@ class CVAssistSystem:
         # 初始化 FPS 计数器
         if self.config.logging.enable_fps_stats:
             self.fps_counter = FPSCounter(window_size=self.config.logging.fps_window_size)
+            self.e2e_fps_counter = FPSCounter(window_size=self.config.logging.fps_window_size)
         else:
             self.fps_counter = None
+            self.e2e_fps_counter = None
         
         logger.info("系统初始化完成")
     
@@ -356,7 +358,7 @@ class CVAssistSystem:
         返回:
             FrameResult 对象，包含所有处理结果和耗时信息
         """
-        start = time.time()
+        start = time.perf_counter()
         
         if queries is None:
             queries = self.config.target_queries
@@ -371,23 +373,23 @@ class CVAssistSystem:
         skip_det = self.config.optimization.skip_frames_detection
         # 只有当 skip_det=0 或当前帧数满足跳帧条件时才执行检测，否则使用缓存结果
         if skip_det == 0 or self.frame_count % (skip_det + 1) == 0:
-            t0 = time.time()
+            t0 = time.perf_counter()
             self.cached_detections = self.detector.detect(frame, queries)
-            det_time = (time.time() - t0) * 1000  # 转换为毫秒
+            det_time = (time.perf_counter() - t0) * 1000  # 转换为毫秒
         detections = self.cached_detections  # 使用缓存的检测结果
         
         # 执行手部检测（每帧都执行，因为很快）
-        t0 = time.time()
+        t0 = time.perf_counter()
         hand_result = self.hand_tracker.detect(frame)
         hands = hand_result['hands']
-        hand_time = (time.time() - t0) * 1000
+        hand_time = (time.perf_counter() - t0) * 1000
         
         # 执行深度估计（按配置的跳帧率）
         skip_depth = self.config.optimization.skip_frames_depth
         if skip_depth == 0 or self.frame_count % (skip_depth + 1) == 0:
-            t0 = time.time()
+            t0 = time.perf_counter()
             self.cached_depth = self.depth_estimator.estimate(frame)
-            depth_time = (time.time() - t0) * 1000
+            depth_time = (time.perf_counter() - t0) * 1000
         depth_map = self.cached_depth  # 使用缓存的深度图
         
         # 计算引导指令（只有当同时检测到手和目标时）
@@ -412,7 +414,7 @@ class CVAssistSystem:
             )
         
         # 计算总耗时
-        total_time = (time.time() - start) * 1000
+        total_time = (time.perf_counter() - start) * 1000
         
         # 返回处理结果
         return FrameResult(
@@ -462,15 +464,25 @@ class CVAssistSystem:
         # 显示 FPS 信息
         fps = 1000 / result.total_time_ms if result.total_time_ms > 0 else 0
         if self.fps_counter:
-            # 使用 FPS 计数器，显示当前和平均 FPS
-            self.fps_counter.update(fps)
-            stats = self.fps_counter.get_stats()
-            cv2.putText(output, f"FPS: {stats['current']:.1f}", 
-                       (output.shape[1] - 150, 25),
+            # 处理 FPS（仅模型与算法处理时间）
+            self.fps_counter.update(frame_time_ms=result.total_time_ms)
+            proc_stats = self.fps_counter.get_stats()
+            cv2.putText(output, f"Proc FPS: {proc_stats['current']:.1f}",
+                       (output.shape[1] - 220, 25),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            cv2.putText(output, f"Avg: {stats['average']:.1f}", 
-                       (output.shape[1] - 150, 50),
+            cv2.putText(output, f"Proc Avg: {proc_stats['average']:.1f}",
+                       (output.shape[1] - 220, 50),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
+            # 端到端 FPS（采集 + 处理 + 绘制 + 显示等待）
+            if self.e2e_fps_counter:
+                e2e_stats = self.e2e_fps_counter.get_stats()
+                cv2.putText(output, f"E2E FPS: {e2e_stats['current']:.1f}",
+                           (output.shape[1] - 220, 75),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 255, 150), 1)
+                cv2.putText(output, f"E2E Avg: {e2e_stats['average']:.1f}",
+                           (output.shape[1] - 220, 98),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (120, 220, 120), 1)
         else:
             # 不使用计数器，只显示当前 FPS
             cv2.putText(output, f"FPS: {fps:.1f}", (output.shape[1] - 100, 25),
@@ -594,6 +606,8 @@ class CVAssistSystem:
         try:
             logger.info("开始主循环")
             while True:
+                loop_start = time.perf_counter()
+
                 # 主线程提交后台语音识别结果
                 self._drain_voice_results()
 
@@ -623,12 +637,18 @@ class CVAssistSystem:
                     
                     # 每 100 帧记录一次统计
                     if self.fps_counter and frame_counter % 100 == 0:
-                        stats = self.fps_counter.get_stats()
-                        logger.info(f"FPS 统计 [帧 {frame_counter}]: "
-                                  f"当前={stats['current']:.1f}, "
-                                  f"平均={stats['average']:.1f}, "
-                                  f"最小={stats['min']:.1f}, "
-                                  f"最大={stats['max']:.1f}")
+                        proc_stats = self.fps_counter.get_stats()
+                        if self.e2e_fps_counter:
+                            e2e_stats = self.e2e_fps_counter.get_stats()
+                            logger.info(f"FPS 统计 [帧 {frame_counter}] | "
+                                      f"处理: 当前={proc_stats['current']:.1f}, 平均={proc_stats['average']:.1f}, 最小={proc_stats['min']:.1f}, 最大={proc_stats['max']:.1f} | "
+                                      f"端到端: 当前={e2e_stats['current']:.1f}, 平均={e2e_stats['average']:.1f}, 最小={e2e_stats['min']:.1f}, 最大={e2e_stats['max']:.1f}")
+                        else:
+                            logger.info(f"FPS 统计 [帧 {frame_counter}]: "
+                                      f"当前={proc_stats['current']:.1f}, "
+                                      f"平均={proc_stats['average']:.1f}, "
+                                      f"最小={proc_stats['min']:.1f}, "
+                                      f"最大={proc_stats['max']:.1f}")
                         if result.detections:
                             logger.debug(f"检测到 {len(result.detections)} 个目标")
                     
@@ -666,6 +686,11 @@ class CVAssistSystem:
                         self._start_voice_input_async()
                     else:
                         logger.warning("ASR 功能未启用")
+
+                # 端到端 FPS：包含采集、处理、绘制和显示等待
+                if self.e2e_fps_counter:
+                    loop_time_ms = (time.perf_counter() - loop_start) * 1000
+                    self.e2e_fps_counter.update(frame_time_ms=loop_time_ms)
         except KeyboardInterrupt:
             logger.info("收到键盘中断信号")
         except Exception as e:
@@ -674,12 +699,17 @@ class CVAssistSystem:
             # 输出最终统计
             if self.fps_counter:
                 stats = self.fps_counter.get_stats()
+                e2e_stats = self.e2e_fps_counter.get_stats() if self.e2e_fps_counter else None
                 logger.info("="*60)
                 logger.info("最终统计")
                 logger.info(f"总帧数: {stats['total_frames']}")
-                logger.info(f"平均 FPS: {stats['average']:.2f}")
-                logger.info(f"最小 FPS: {stats['min']:.2f}")
-                logger.info(f"最大 FPS: {stats['max']:.2f}")
+                logger.info(f"处理平均 FPS: {stats['average']:.2f}")
+                logger.info(f"处理最小 FPS: {stats['min']:.2f}")
+                logger.info(f"处理最大 FPS: {stats['max']:.2f}")
+                if e2e_stats:
+                    logger.info(f"端到端平均 FPS: {e2e_stats['average']:.2f}")
+                    logger.info(f"端到端最小 FPS: {e2e_stats['min']:.2f}")
+                    logger.info(f"端到端最大 FPS: {e2e_stats['max']:.2f}")
                 logger.info("="*60)
             
             # 释放资源

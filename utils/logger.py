@@ -5,6 +5,7 @@
 """
 
 import logging
+import math
 import os
 from datetime import datetime
 from collections import deque
@@ -23,13 +24,30 @@ class FPSCounter:
         """
         self.window_size = window_size
         self.fps_queue = deque(maxlen=window_size)
+        self.frame_time_ms_queue = deque(maxlen=window_size)
         self.min_fps = float('inf')
         self.max_fps = 0.0
         self.total_frames = 0
         
-    def update(self, fps: float):
-        """更新 FPS 数据"""
+    def update(self, fps: Optional[float] = None, frame_time_ms: Optional[float] = None):
+        """更新 FPS 数据
+
+        可传入 fps 或 frame_time_ms（二选一，frame_time_ms 优先）。
+        """
+        if frame_time_ms is not None:
+            if not math.isfinite(frame_time_ms) or frame_time_ms <= 0:
+                return
+            fps = 1000.0 / frame_time_ms
+        elif fps is not None:
+            if not math.isfinite(fps) or fps <= 0:
+                return
+            frame_time_ms = 1000.0 / fps
+        else:
+            return
+
+        # 到这里 fps / frame_time_ms 都是合法正数
         self.fps_queue.append(fps)
+        self.frame_time_ms_queue.append(frame_time_ms)
         self.total_frames += 1
         
         if fps < self.min_fps:
@@ -39,9 +57,13 @@ class FPSCounter:
     
     def get_avg_fps(self) -> float:
         """获取平均 FPS"""
-        if not self.fps_queue:
+        if not self.frame_time_ms_queue:
             return 0.0
-        return sum(self.fps_queue) / len(self.fps_queue)
+        total_time_ms = sum(self.frame_time_ms_queue)
+        if total_time_ms <= 0:
+            return 0.0
+        # 正确口径：平均 FPS = 窗口帧数 / 窗口总时长
+        return (len(self.frame_time_ms_queue) * 1000.0) / total_time_ms
     
     def get_current_fps(self) -> float:
         """获取当前 FPS"""
@@ -62,6 +84,7 @@ class FPSCounter:
     def reset(self):
         """重置统计"""
         self.fps_queue.clear()
+        self.frame_time_ms_queue.clear()
         self.min_fps = float('inf')
         self.max_fps = 0.0
         self.total_frames = 0
