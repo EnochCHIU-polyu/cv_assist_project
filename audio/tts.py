@@ -43,7 +43,9 @@ class TTSEngine:
                  rate: int = 150,
                  volume: float = 1.0,
                  voice_index: Optional[int] = None,
-                 async_mode: bool = True):
+                 async_mode: bool = True,
+                 max_queue_size: int = 1,
+                 drop_stale: bool = True):
         """
         初始化 TTS 引擎
         
@@ -57,6 +59,8 @@ class TTSEngine:
         self.volume = volume
         self.voice_id = None
         self.backend = None
+        self.max_queue_size = max(1, int(max_queue_size))
+        self.drop_stale = drop_stale
 
         # 后端选择策略：
         # - 如果需要异步播放，则统一使用 pyttsx3（跨平台且已实现队列+工作线程）
@@ -133,10 +137,12 @@ class TTSEngine:
                 logger.info(f"使用默认语音: {voices[0].name if voices else 'unknown'}")
 
         if self.async_mode:
-            self.speech_queue = queue.Queue()
+            self.speech_queue = queue.Queue(maxsize=self.max_queue_size)
             self.worker_thread = threading.Thread(target=self._worker, daemon=True)
             self.worker_thread.start()
-            logger.info("TTS 异步模式已启用")
+            logger.info(
+                f"TTS 异步模式已启用 (queue_size={self.max_queue_size}, drop_stale={self.drop_stale})"
+            )
 
     def _wpm_to_sapi_rate(self, wpm: int) -> int:
         """将每分钟词数大致映射到 SAPI Rate (-10..10)"""
@@ -216,7 +222,7 @@ class TTSEngine:
 
             if self.async_mode and not block:
                 # 异步播放
-                self.speech_queue.put(text)
+                self._enqueue_async(text)
             else:
                 # 同步播放
                 self.engine.say(text)
@@ -224,6 +230,23 @@ class TTSEngine:
                 
         except Exception as e:
             logger.error(f"TTS 播放失败: {e}")
+
+    def _enqueue_async(self, text: str):
+        """将文本加入异步队列，支持队列满时去旧保新。"""
+        try:
+            self.speech_queue.put_nowait(text)
+            return
+        except queue.Full:
+            if not self.drop_stale:
+                logger.debug("TTS 队列已满，保留旧消息，丢弃新消息")
+                return
+
+        # 队列满且启用去旧：清空旧指令，仅保留最新文本
+        self.clear_queue()
+        try:
+            self.speech_queue.put_nowait(text)
+        except queue.Full:
+            logger.debug("TTS 队列仍然繁忙，丢弃当前消息")
     
     def speak_instruction(self, instruction: str):
         """

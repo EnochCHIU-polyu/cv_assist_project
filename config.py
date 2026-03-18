@@ -51,6 +51,16 @@ class GuidanceConfig:
     horizontal_threshold: int = 30
     vertical_threshold: int = 30
     depth_threshold: float = 0.15
+    # 滞回阈值：进入对齐区域更严格，退出对齐区域更宽松
+    horizontal_threshold_enter: int = 24
+    horizontal_threshold_exit: int = 36
+    vertical_threshold_enter: int = 24
+    vertical_threshold_exit: int = 36
+    depth_threshold_enter: float = 0.12
+    depth_threshold_exit: float = 0.18
+    # 抓握稳定判定
+    grasp_stable_frames: int = 8
+    grasp_release_frames: int = 3
 
 
 @dataclass
@@ -66,6 +76,11 @@ class AudioConfig:
     tts_rate: int = 150  # 语速 (words per minute)
     tts_volume: float = 1.0  # 音量 (0.0-1.0)
     tts_async: bool = True  # 异步播放 (不阻塞主线程)
+    tts_instruction_interval_sec: float = 3.0  # 普通引导最小播报间隔
+    tts_grab_repeat_sec: float = 3.0  # 抓握口令重复间隔
+    tts_max_queue_size: int = 1  # 异步队列大小，1 表示仅保留最新
+    tts_drop_stale: bool = True  # 队列满时是否丢弃旧消息保留新消息
+    tts_state_change_bypass: bool = True  # 状态变化时可绕过间隔立即播报
     
     # 录音设置
     record_sample_rate: int = 16000  # 采样率 (Hz)
@@ -96,6 +111,7 @@ class SystemConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     
+    # 目标查询列表，用户可以根据需要修改为其他物体
     target_queries: List[str] = field(default_factory=lambda: ["a cup", "a bottle"])
     camera_width: int = 640
     camera_height: int = 480

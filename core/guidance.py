@@ -6,7 +6,7 @@
 
 import cv2
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Optional
 from dataclasses import dataclass
 import logging
 import os
@@ -33,6 +33,8 @@ class GuidanceResult:
     dy: int                # 垂直偏移（像素）
     depth_diff: float      # 深度差异 (0-1)
     ready_to_grab: bool    # 是否就位可抓取
+    stable_ready_frames: int  # 当前已连续稳定对齐的帧数
+    state: str             # 语义状态: 'moving' | 'ready' | 'grabbed'
 
 
 class GuidanceController:
@@ -50,7 +52,15 @@ class GuidanceController:
     def __init__(self,
                  horizontal_threshold: int = 30,
                  vertical_threshold: int = 30,
-                 depth_threshold: float = 0.15):
+                 depth_threshold: float = 0.15,
+                 horizontal_threshold_enter: Optional[int] = None,
+                 horizontal_threshold_exit: Optional[int] = None,
+                 vertical_threshold_enter: Optional[int] = None,
+                 vertical_threshold_exit: Optional[int] = None,
+                 depth_threshold_enter: Optional[float] = None,
+                 depth_threshold_exit: Optional[float] = None,
+                 grasp_stable_frames: int = 8,
+                 grasp_release_frames: int = 3):
         """
         初始化引导控制器
         
@@ -63,8 +73,40 @@ class GuidanceController:
         self.h_thresh = horizontal_threshold
         self.v_thresh = vertical_threshold
         self.d_thresh = depth_threshold
+        self.h_enter = horizontal_threshold_enter if horizontal_threshold_enter is not None else horizontal_threshold
+        self.h_exit = horizontal_threshold_exit if horizontal_threshold_exit is not None else horizontal_threshold
+        self.v_enter = vertical_threshold_enter if vertical_threshold_enter is not None else vertical_threshold
+        self.v_exit = vertical_threshold_exit if vertical_threshold_exit is not None else vertical_threshold
+        self.d_enter = depth_threshold_enter if depth_threshold_enter is not None else depth_threshold
+        self.d_exit = depth_threshold_exit if depth_threshold_exit is not None else depth_threshold
+        self.grasp_stable_frames = max(1, int(grasp_stable_frames))
+        self.grasp_release_frames = max(1, int(grasp_release_frames))
+
+        # 状态缓存用于滞回与稳定帧判定
+        self._prev_dir_h = 'center'
+        self._prev_dir_v = 'center'
+        self._prev_dir_d = 'hold'
+        self._ready_streak = 0
+        self._not_ready_streak = 0
+        self._ready_latched = False
         
         logger.info(f"引导控制器初始化: h={horizontal_threshold}, v={vertical_threshold}, d={depth_threshold}")
+
+    def _direction_with_hysteresis(self,
+                                   value: float,
+                                   prev_state: str,
+                                   enter_th: float,
+                                   exit_th: float,
+                                   positive_label: str,
+                                   negative_label: str,
+                                   center_label: str) -> str:
+        """使用内外阈值进行方向判定，避免临界抖动。"""
+        abs_value = abs(value)
+        if abs_value <= enter_th:
+            return center_label
+        if abs_value > exit_th:
+            return positive_label if value > 0 else negative_label
+        return prev_state
     
     def calculate(self,
                   hand_center: Tuple[int, int],
@@ -90,36 +132,50 @@ class GuidanceController:
         dy = target_center[1] - hand_center[1]  # 垂直偏移（正值=目标在下）
         dd = target_depth - hand_depth          # 深度差（正值=目标更远）
         
-        # 判断水平方向
-        if abs(dx) <= self.h_thresh:
-            dir_h = 'center'  # 已水平对齐
+        # 使用滞回阈值判定方向，减少边界来回跳变
+        dir_h = self._direction_with_hysteresis(
+            dx, self._prev_dir_h, self.h_enter, self.h_exit, 'right', 'left', 'center'
+        )
+        dir_v = self._direction_with_hysteresis(
+            dy, self._prev_dir_v, self.v_enter, self.v_exit, 'down', 'up', 'center'
+        )
+        dir_d = self._direction_with_hysteresis(
+            dd, self._prev_dir_d, self.d_enter, self.d_exit, 'forward', 'backward', 'hold'
+        )
+
+        self._prev_dir_h = dir_h
+        self._prev_dir_v = dir_v
+        self._prev_dir_d = dir_d
+
+        raw_ready = (dir_h == 'center' and dir_v == 'center' and dir_d == 'hold')
+
+        # 连续稳定帧：进入抓握态需满足 N 帧，退出也要求连续不满足若干帧
+        if raw_ready:
+            self._ready_streak += 1
+            self._not_ready_streak = 0
         else:
-            dir_h = 'right' if dx > 0 else 'left'  # 需要向右或向左
-        
-        # 判断垂直方向
-        if abs(dy) <= self.v_thresh:
-            dir_v = 'center'  # 已垂直对齐
-        else:
-            dir_v = 'down' if dy > 0 else 'up'  # 需要向下或向上
-        
-        # 判断深度方向
-        if abs(dd) <= self.d_thresh:
-            dir_d = 'hold'  # 深度已对齐，保持
-        else:
-            dir_d = 'forward' if dd > 0 else 'backward'  # 需要向前或向后
-        
-        # 判断是否三个维度都对齐了
-        ready = (dir_h == 'center' and dir_v == 'center' and dir_d == 'hold')
+            self._ready_streak = 0
+            self._not_ready_streak += 1
+
+        if not self._ready_latched and self._ready_streak >= self.grasp_stable_frames:
+            self._ready_latched = True
+        elif self._ready_latched and self._not_ready_streak >= self.grasp_release_frames:
+            self._ready_latched = False
+
+        ready = self._ready_latched
         
         # 生成指令文本
         if ready:
             # 已就位，根据手势给出不同指令
             if gesture == 'open':
                 instruction = "抓取! 闭合手掌"
+                state = 'ready'
             elif gesture == 'closed':
                 instruction = "已抓住!"
+                state = 'grabbed'
             else:
                 instruction = "准备抓取!"
+                state = 'ready'
         else:
             # 未就位，创建移动指令
             parts = []
@@ -130,6 +186,7 @@ class GuidanceController:
             if dir_d != 'hold':
                 parts.append(f"向{self._translate(dir_d)}移动")
             instruction = " | ".join(parts) if parts else "保持位置"
+            state = 'moving'
         
         return GuidanceResult(
             instruction=instruction,
@@ -139,7 +196,9 @@ class GuidanceController:
             dx=dx,
             dy=dy,
             depth_diff=dd,
-            ready_to_grab=ready
+            ready_to_grab=ready,
+            stable_ready_frames=self._ready_streak,
+            state=state
         )
     
     def _translate(self, direction: str) -> str:

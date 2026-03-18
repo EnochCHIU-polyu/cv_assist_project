@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 import time
 import logging
+import threading
+import queue
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
@@ -122,6 +124,9 @@ class CVAssistSystem:
         self.frame_count = 0        # 已处理的帧数
         self.cached_detections = []  # 缓存的检测结果（用于跳帧）
         self.cached_depth = None     # 缓存的深度图（用于跳帧）
+
+        # 运行时状态（线程与播报节流）
+        self._init_runtime_states()
         
         # 初始化 FPS 计数器
         if self.config.logging.enable_fps_stats:
@@ -177,7 +182,15 @@ class CVAssistSystem:
         self.guidance = GuidanceController(
             horizontal_threshold=cfg.guidance.horizontal_threshold,
             vertical_threshold=cfg.guidance.vertical_threshold,
-            depth_threshold=cfg.guidance.depth_threshold
+            depth_threshold=cfg.guidance.depth_threshold,
+            horizontal_threshold_enter=cfg.guidance.horizontal_threshold_enter,
+            horizontal_threshold_exit=cfg.guidance.horizontal_threshold_exit,
+            vertical_threshold_enter=cfg.guidance.vertical_threshold_enter,
+            vertical_threshold_exit=cfg.guidance.vertical_threshold_exit,
+            depth_threshold_enter=cfg.guidance.depth_threshold_enter,
+            depth_threshold_exit=cfg.guidance.depth_threshold_exit,
+            grasp_stable_frames=cfg.guidance.grasp_stable_frames,
+            grasp_release_frames=cfg.guidance.grasp_release_frames,
         )
         
         logger.info("所有组件初始化成功")
@@ -216,12 +229,117 @@ class CVAssistSystem:
                 self.tts_engine = TTSEngine(
                     rate=cfg.tts_rate,
                     volume=cfg.tts_volume,
-                    async_mode=cfg.tts_async
+                    async_mode=cfg.tts_async,
+                    max_queue_size=cfg.tts_max_queue_size,
+                    drop_stale=cfg.tts_drop_stale,
                 )
                 logger.info("TTS 引擎初始化成功")
             except Exception as e:
                 logger.error(f"TTS 引擎初始化失败: {e}")
                 self.tts_engine = None
+
+    def _init_runtime_states(self):
+        """初始化运行时状态（线程、播报节流等）。"""
+        self._voice_thread = None
+        self._voice_in_progress = False
+        self._voice_result_queue = queue.Queue()
+
+        self._last_instruction = None
+        self._last_instruction_state = None
+        self._last_instruction_ts = 0.0
+        self._last_grab_ts = 0.0
+
+    def _reset_tts_context(self):
+        """目标切换后清理播报上下文，避免旧指令残留。"""
+        self._last_instruction = None
+        self._last_instruction_state = None
+        self._last_instruction_ts = 0.0
+        self._last_grab_ts = 0.0
+        if self.tts_engine:
+            self.tts_engine.clear_queue()
+
+    def _guidance_state(self, guidance: GuidanceResult) -> str:
+        """提取引导语义状态。"""
+        return getattr(guidance, 'state', 'ready' if guidance.ready_to_grab else 'moving')
+
+    def _should_speak_guidance(self, guidance: GuidanceResult) -> bool:
+        """根据节流规则判断是否应播报当前引导。"""
+        cfg = self.config.audio
+        now = time.time()
+        state = self._guidance_state(guidance)
+
+        if state in ('ready', 'grabbed'):
+            if self._last_instruction_state != state and cfg.tts_state_change_bypass:
+                return True
+            return (now - self._last_grab_ts) >= cfg.tts_grab_repeat_sec
+
+        if self._last_instruction_state != state and cfg.tts_state_change_bypass:
+            return True
+
+        if self._last_instruction != guidance.instruction:
+            return (now - self._last_instruction_ts) >= cfg.tts_instruction_interval_sec
+
+        return (now - self._last_instruction_ts) >= cfg.tts_instruction_interval_sec
+
+    def _speak_guidance(self, guidance: GuidanceResult):
+        """播放当前引导并更新节流状态。"""
+        if not self.tts_engine:
+            return
+
+        state = self._guidance_state(guidance)
+        now = time.time()
+        self.tts_engine.speak_instruction(guidance.instruction)
+        self._last_instruction = guidance.instruction
+        self._last_instruction_state = state
+        self._last_instruction_ts = now
+        if state in ('ready', 'grabbed'):
+            self._last_grab_ts = now
+
+    def _start_voice_input_async(self):
+        """异步启动语音输入，避免主循环阻塞。"""
+        if self._voice_in_progress:
+            logger.info("语音输入进行中，请稍候...")
+            return
+
+        self._voice_in_progress = True
+        self._voice_thread = threading.Thread(target=self._voice_input_worker, daemon=True)
+        self._voice_thread.start()
+
+    def _voice_input_worker(self):
+        """后台执行录音和识别，结果回传给主循环。"""
+        try:
+            result = self._handle_voice_input()
+            if result is not None:
+                self._voice_result_queue.put(result)
+        except Exception as e:
+            logger.error(f"后台语音线程失败: {e}", exc_info=True)
+            self._voice_result_queue.put({'status': 'error', 'message': '语音识别出错'})
+        finally:
+            self._voice_in_progress = False
+
+    def _drain_voice_results(self):
+        """消费后台语音结果并在主线程提交状态更新。"""
+        while not self._voice_result_queue.empty():
+            try:
+                result = self._voice_result_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            status = result.get('status')
+            if status == 'ok' and result.get('target'):
+                target = result['target']
+                self.config.target_queries = [target]
+                self.cached_detections = []
+                self._reset_tts_context()
+                logger.info(f"检测目标已更新为: {target}")
+                if self.tts_engine:
+                    self.tts_engine.speak(f"正在寻找{target}")
+            else:
+                message = result.get('message')
+                if message:
+                    logger.warning(message)
+                    if self.tts_engine:
+                        self.tts_engine.speak(message)
     
     def process_frame(self, frame: np.ndarray,
                       queries: Optional[List[str]] = None) -> FrameResult:
@@ -251,6 +369,7 @@ class CVAssistSystem:
         
         # 执行目标检测（按配置的跳帧率）
         skip_det = self.config.optimization.skip_frames_detection
+        # 只有当 skip_det=0 或当前帧数满足跳帧条件时才执行检测，否则使用缓存结果
         if skip_det == 0 or self.frame_count % (skip_det + 1) == 0:
             t0 = time.time()
             self.cached_detections = self.detector.detect(frame, queries)
@@ -363,7 +482,8 @@ class CVAssistSystem:
         """
         处理语音输入
         
-        录制用户语音，使用 ASR 转录，解析指令并更新检测目标
+        录制用户语音，使用 ASR 转录并解析目标。
+        返回结构化结果，由主线程统一提交状态更新。
         """
         try:
             if self.tts_engine:
@@ -385,9 +505,7 @@ class CVAssistSystem:
             
             if len(audio) == 0:
                 logger.warning("未录制到音频")
-                if self.tts_engine:
-                    self.tts_engine.speak("未录制到音频，请重试")
-                return
+                return {'status': 'error', 'message': '未录制到音频，请重试'}
             
             logger.info(f"录音完成，开始识别...")
             if self.tts_engine:
@@ -399,9 +517,7 @@ class CVAssistSystem:
             
             if not text:
                 logger.warning("识别结果为空")
-                if self.tts_engine:
-                    self.tts_engine.speak("没有识别到内容，请重试")
-                return
+                return {'status': 'error', 'message': '没有识别到内容，请重试'}
             
             logger.info(f"识别结果: '{text}'")
             
@@ -409,26 +525,15 @@ class CVAssistSystem:
             target = self.asr_engine.parse_command(text)
             
             if target:
-                # 更新检测目标
-                self.config.target_queries = [target]
-                logger.info(f"检测目标已更新为: {target}")
-                
-                if self.tts_engine:
-                    self.tts_engine.speak(f"正在寻找{target}")
-                
-                # 清空缓存的检测结果，强制重新检测
-                self.cached_detections = []
+                logger.info(f"语音解析目标成功: {target}")
+                return {'status': 'ok', 'target': target}
             else:
                 logger.warning(f"无法解析指令: '{text}'")
-                if self.tts_engine:
-                    self.tts_engine.speak("抱歉，无法理解您的指令")
-            
-            logger.info("=== 语音录制结束 ===")
+                return {'status': 'error', 'message': '抱歉，无法理解您的指令'}
             
         except Exception as e:
             logger.error(f"语音输入处理失败: {e}", exc_info=True)
-            if self.tts_engine:
-                self.tts_engine.speak("语音识别出错")
+            return {'status': 'error', 'message': '语音识别出错'}
     
     def run(self, camera_id: int = 0):
         """
@@ -489,6 +594,9 @@ class CVAssistSystem:
         try:
             logger.info("开始主循环")
             while True:
+                # 主线程提交后台语音识别结果
+                self._drain_voice_results()
+
                 # 读取摄像头帧
                 try:
                     ret, frame = cap.read()
@@ -510,10 +618,8 @@ class CVAssistSystem:
                     
                     # 如果启用了TTS且有引导指令，播放语音
                     if self.tts_engine and result.guidance:
-                        # 避免重复播放相同的指令
-                        if not hasattr(self, '_last_instruction') or self._last_instruction != result.guidance.instruction:
-                            self.tts_engine.speak_instruction(result.guidance.instruction)
-                            self._last_instruction = result.guidance.instruction
+                        if self._should_speak_guidance(result.guidance):
+                            self._speak_guidance(result.guidance)
                     
                     # 每 100 帧记录一次统计
                     if self.fps_counter and frame_counter % 100 == 0:
@@ -557,7 +663,7 @@ class CVAssistSystem:
                 elif key == ord('v'):
                     # 语音输入
                     if self.asr_engine and self.audio_recorder:
-                        self._handle_voice_input()
+                        self._start_voice_input_async()
                     else:
                         logger.warning("ASR 功能未启用")
         except KeyboardInterrupt:
