@@ -235,6 +235,7 @@ class CVAssistSystem:
                     max_queue_size=cfg.tts_max_queue_size,
                     drop_stale=cfg.tts_drop_stale,
                 )
+                self.tts_engine.get_debug_info()
                 logger.info("TTS 引擎初始化成功")
             except Exception as e:
                 logger.error(f"TTS 引擎初始化失败: {e}")

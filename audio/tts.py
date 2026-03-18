@@ -61,6 +61,10 @@ class TTSEngine:
         self.backend = None
         self.max_queue_size = max(1, int(max_queue_size))
         self.drop_stale = drop_stale
+        self._voice_index = voice_index
+        self._worker_ready = threading.Event()
+        self._worker_init_error = None
+        self._stop_token = object()
 
         # 后端选择策略：
         # - 如果需要异步播放，则统一使用 pyttsx3（跨平台且已实现队列+工作线程）
@@ -114,35 +118,50 @@ class TTSEngine:
 
     def _init_pyttsx3(self, voice_index: Optional[int]):
         """初始化 pyttsx3 后端"""
-        self.engine = pyttsx3.init()
-        self.engine.setProperty('rate', self.rate)
-        self.engine.setProperty('volume', self.volume)
-
-        voices = self.engine.getProperty('voices')
-        logger.info(f"系统可用语音: {len(voices)} 个")
-
-        if voice_index is not None and 0 <= voice_index < len(voices):
-            self.engine.setProperty('voice', voices[voice_index].id)
-            self.voice_id = voices[voice_index].id
-            logger.info(f"使用语音: {voices[voice_index].name}")
-        else:
-            chinese_voice = self._find_chinese_voice(voices)
-            if chinese_voice:
-                self.engine.setProperty('voice', chinese_voice.id)
-                self.voice_id = chinese_voice.id
-                logger.info(f"自动选择中文语音: {chinese_voice.name}")
-            else:
-                if voices:
-                    self.voice_id = voices[0].id
-                logger.info(f"使用默认语音: {voices[0].name if voices else 'unknown'}")
-
+        # 关键修复：异步模式下在工作线程中初始化并使用 pyttsx3，避免跨线程调用导致无声/不稳定。
         if self.async_mode:
+            self.engine = None
             self.speech_queue = queue.Queue(maxsize=self.max_queue_size)
             self.worker_thread = threading.Thread(target=self._worker, daemon=True)
             self.worker_thread.start()
+
+            if not self._worker_ready.wait(timeout=3.0):
+                logger.warning("TTS 异步工作线程初始化超时，后续将继续尝试播放")
+            if self._worker_init_error:
+                raise RuntimeError(f"TTS 异步工作线程初始化失败: {self._worker_init_error}")
+
             logger.info(
                 f"TTS 异步模式已启用 (queue_size={self.max_queue_size}, drop_stale={self.drop_stale})"
             )
+            return
+
+        self.engine = pyttsx3.init()
+        self._configure_pyttsx3_engine(self.engine, voice_index)
+
+    def _configure_pyttsx3_engine(self, engine, voice_index: Optional[int]):
+        """配置 pyttsx3 引擎参数与语音。"""
+        engine.setProperty('rate', self.rate)
+        engine.setProperty('volume', self.volume)
+
+        voices = engine.getProperty('voices')
+        logger.info(f"系统可用语音: {len(voices)} 个")
+
+        if voice_index is not None and 0 <= voice_index < len(voices):
+            engine.setProperty('voice', voices[voice_index].id)
+            self.voice_id = voices[voice_index].id
+            logger.info(f"使用语音: {voices[voice_index].name}")
+            return
+
+        chinese_voice = self._find_chinese_voice(voices)
+        if chinese_voice:
+            engine.setProperty('voice', chinese_voice.id)
+            self.voice_id = chinese_voice.id
+            logger.info(f"自动选择中文语音: {chinese_voice.name}")
+            return
+
+        if voices:
+            self.voice_id = voices[0].id
+        logger.info(f"使用默认语音: {voices[0].name if voices else 'unknown'}")
 
     def _wpm_to_sapi_rate(self, wpm: int) -> int:
         """将每分钟词数大致映射到 SAPI Rate (-10..10)"""
@@ -187,18 +206,36 @@ class TTSEngine:
         """
         异步播放工作线程
         """
+        try:
+            self.engine = pyttsx3.init()
+            self._configure_pyttsx3_engine(self.engine, self._voice_index)
+            self._worker_ready.set()
+            logger.debug("TTS 异步工作线程初始化完成")
+        except Exception as e:
+            self._worker_init_error = e
+            self._worker_ready.set()
+            logger.error(f"TTS 异步工作线程初始化失败: {e}", exc_info=True)
+            return
+
         while True:
             try:
-                text = self.speech_queue.get()
-                if text is None:  # 退出信号
+                payload = self.speech_queue.get()
+                if payload is self._stop_token:  # 退出信号
+                    self.speech_queue.task_done()
                     break
-                
-                logger.debug(f"TTS 播放: '{text}'")
-                self.engine.say(text)
-                self.engine.runAndWait()
+
+                text, done_event = payload
+                try:
+                    logger.debug(f"TTS 播放: '{text}'")
+                    self.engine.say(text)
+                    self.engine.runAndWait()
+                finally:
+                    if done_event is not None:
+                        done_event.set()
+                    self.speech_queue.task_done()
                 
             except Exception as e:
-                logger.error(f"TTS 播放错误: {e}")
+                logger.error(f"TTS 播放错误: {e}", exc_info=True)
     
     def speak(self, text: str, block: bool = False):
         """
@@ -223,30 +260,44 @@ class TTSEngine:
             if self.async_mode and not block:
                 # 异步播放
                 self._enqueue_async(text)
+            elif self.async_mode and block:
+                # 在异步模式下也通过工作线程执行，避免跨线程访问 pyttsx3
+                self._enqueue_async(text, wait=True)
             else:
                 # 同步播放
                 self.engine.say(text)
                 self.engine.runAndWait()
                 
         except Exception as e:
-            logger.error(f"TTS 播放失败: {e}")
+            logger.error(f"TTS 播放失败: {e}", exc_info=True)
 
-    def _enqueue_async(self, text: str):
+    def _enqueue_async(self, text: str, wait: bool = False):
         """将文本加入异步队列，支持队列满时去旧保新。"""
+        done_event = threading.Event() if wait else None
+        payload = (text, done_event)
+        queued = False
+
         try:
-            self.speech_queue.put_nowait(text)
-            return
+            self.speech_queue.put_nowait(payload)
+            queued = True
         except queue.Full:
             if not self.drop_stale:
                 logger.debug("TTS 队列已满，保留旧消息，丢弃新消息")
                 return
 
-        # 队列满且启用去旧：清空旧指令，仅保留最新文本
-        self.clear_queue()
-        try:
-            self.speech_queue.put_nowait(text)
-        except queue.Full:
-            logger.debug("TTS 队列仍然繁忙，丢弃当前消息")
+        if not queued:
+            # 队列满且启用去旧：清空旧指令，仅保留最新文本
+            self.clear_queue()
+            try:
+                self.speech_queue.put_nowait(payload)
+                queued = True
+            except queue.Full:
+                logger.debug("TTS 队列仍然繁忙，丢弃当前消息")
+                return
+
+        if wait and done_event is not None:
+            if not done_event.wait(timeout=5.0):
+                logger.warning("TTS 同步等待超时，文本可能未及时播报")
     
     def speak_instruction(self, instruction: str):
         """
@@ -277,7 +328,13 @@ class TTSEngine:
         if getattr(self, 'async_mode', False) and hasattr(self, 'speech_queue'):
             while not self.speech_queue.empty():
                 try:
-                    self.speech_queue.get_nowait()
+                    payload = self.speech_queue.get_nowait()
+                    # 如果是阻塞等待任务，通知调用方避免一直等待。
+                    if isinstance(payload, tuple) and len(payload) == 2:
+                        _, done_event = payload
+                        if done_event is not None:
+                            done_event.set()
+                    self.speech_queue.task_done()
                 except queue.Empty:
                     break
             logger.debug("TTS 队列已清空")
@@ -333,6 +390,10 @@ class TTSEngine:
                 logger.info(f"  [{idx}] {voice.GetDescription()} - {voice.Id}")
             return voice_list
 
+        if self.async_mode and not self._worker_ready.is_set():
+            logger.warning("TTS 工作线程尚未就绪，暂时无法列出语音")
+            return voice_list
+
         voices = self.engine.getProperty('voices')
         for idx, voice in enumerate(voices):
             voice_info = {
@@ -356,7 +417,8 @@ class TTSEngine:
 
             if getattr(self, 'async_mode', False) and hasattr(self, 'speech_queue'):
                 # 发送退出信号
-                self.speech_queue.put(None)
+                self.clear_queue()
+                self.speech_queue.put(self._stop_token)
                 if hasattr(self, 'worker_thread'):
                     self.worker_thread.join(timeout=2.0)
             
@@ -367,6 +429,30 @@ class TTSEngine:
             
         except Exception as e:
             logger.error(f"关闭 TTS 引擎失败: {e}")
+
+    def get_debug_info(self) -> dict:
+        """返回当前 TTS 关键状态，便于定位无声问题。"""
+        info = {
+            'backend': self.backend,
+            'async_mode': self.async_mode,
+            'rate': self.rate,
+            'volume': self.volume,
+            'voice_id': self.voice_id,
+            'platform': platform.system(),
+            'pyttsx3_available': PYTTSX3_AVAILABLE,
+            'sapi_available': SAPI_AVAILABLE,
+        }
+
+        if hasattr(self, 'speech_queue'):
+            info['queue_size'] = self.speech_queue.qsize()
+            info['queue_max_size'] = self.max_queue_size
+        if hasattr(self, 'worker_thread'):
+            info['worker_alive'] = self.worker_thread.is_alive()
+        if self._worker_init_error is not None:
+            info['worker_init_error'] = str(self._worker_init_error)
+
+        logger.info(f"TTS 调试信息: {info}")
+        return info
     
     def __del__(self):
         """
