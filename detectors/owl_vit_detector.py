@@ -11,7 +11,6 @@ from PIL import Image
 from transformers import OwlViTProcessor, OwlViTForObjectDetection
 from typing import List, Dict, Tuple, Optional
 import logging
-import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
