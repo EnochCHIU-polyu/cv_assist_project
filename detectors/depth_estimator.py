@@ -9,8 +9,23 @@ import numpy as np
 import torch
 from typing import Tuple
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+def _check_torch_hub_cache(repo: str) -> bool:
+    """检查 PyTorch Hub 模型是否已缓存在本地"""
+    cache_dir = Path.home() / ".cache" / "torch" / "hub"
+    # PyTorch Hub 缓存目录格式: repo_owner_repo_name (如 intel-isl_MiDaS_master)
+    repo_prefix = repo.replace("/", "_")
+    if not cache_dir.exists():
+        return False
+    # 检查是否存在匹配的缓存目录
+    for item in cache_dir.iterdir():
+        if item.is_dir() and item.name.startswith(repo_prefix):
+            return True
+    return False
 
 
 class DepthEstimator:
@@ -51,9 +66,14 @@ class DepthEstimator:
         logger.info(f"加载 MiDaS 模型: {model_name}")
         logger.info(f"设备: {self.device}, FP16: {self.use_fp16}, 缩放: {scale}")
         
+        # 检查本地缓存
+        use_cache = _check_torch_hub_cache("intel-isl/MiDaS")
+        cache_status = "本地缓存" if use_cache else "首次下载"
+        logger.info(f"MiDaS 模型来源: {cache_status}")
+        
         # 加载模型，带网络错误处理
         try:
-            logger.info("下载/加载 MiDaS 模型...")
+            logger.info("加载 MiDaS 模型...")
             # 从 PyTorch Hub 加载预训练模型
             self.model = torch.hub.load("intel-isl/MiDaS", model_name)
             self.model = self.model.to(self.device).eval()  # 移动到设备并设置为评估模式
@@ -67,7 +87,7 @@ class DepthEstimator:
             self.model = None
         
         try:
-            logger.info("下载/加载 MiDaS transforms...")
+            logger.info("加载 MiDaS transforms...")
             # 加载图像变换器，用于预处理输入图像
             self.transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
             # 根据模型类型选择合适的变换

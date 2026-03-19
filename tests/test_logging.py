@@ -56,6 +56,13 @@ def test_fps_counter():
     assert stats['min'] == 27.3, "最小 FPS 错误"
     assert stats['max'] == 32.1, "最大 FPS 错误"
 
+    # 回归测试：平均 FPS 应按总时间计算，而不是直接做 FPS 算术平均
+    fps_counter.reset()
+    fps_counter.update(10.0)   # 100ms
+    fps_counter.update(100.0)  # 10ms
+    weighted_avg = fps_counter.get_avg_fps()
+    assert abs(weighted_avg - (2 * 1000 / 110)) < 0.01, "平均 FPS 统计口径错误"
+
     print("✓ FPS 计数器测试通过")
 
 

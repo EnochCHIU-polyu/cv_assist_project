@@ -11,8 +11,18 @@ from PIL import Image
 from transformers import OwlViTProcessor, OwlViTForObjectDetection
 from typing import List, Dict, Tuple, Optional
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+def _check_hf_cache(model_name: str) -> bool:
+    """检查 HuggingFace 模型是否已缓存在本地"""
+    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+    # 将模型名称转换为缓存目录格式 (如 google/owlvit-base-patch32 -> models--google--owlvit-base-patch32)
+    model_dir_name = "models--" + model_name.replace("/", "--")
+    model_path = cache_dir / model_dir_name / "snapshots"
+    return model_path.exists() and any(model_path.iterdir())
 
 
 class OWLViTDetector:
@@ -55,12 +65,17 @@ class OWLViTDetector:
         logger.info(f"加载 OWL-ViT 模型: {model_name}")
         logger.info(f"设备: {self.device}, FP16: {self.use_fp16}")
         
+        # 检查本地缓存
+        use_cache = _check_hf_cache(model_name)
+        cache_status = "本地缓存" if use_cache else "首次下载"
+        logger.info(f"OWL-ViT 模型来源: {cache_status}")
+        
         try:
             dtype = torch.float16 if self.use_fp16 else torch.float32
-            logger.info("下载/加载 OWL-ViT 处理器...")
+            logger.info("加载 OWL-ViT 处理器...")
             self.processor = OwlViTProcessor.from_pretrained(model_name)
             
-            logger.info("下载/加载 OWL-ViT 模型...")
+            logger.info("加载 OWL-ViT 模型...")
             self.model = OwlViTForObjectDetection.from_pretrained(
                 model_name, torch_dtype=dtype
             ).to(self.device)

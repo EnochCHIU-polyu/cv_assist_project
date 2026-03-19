@@ -9,3 +9,6 @@ __pycache__/
 # Logs
 logs/
 *.log
+
+# Environment variables (sensitive data)
+.env
