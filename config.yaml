@@ -73,7 +73,7 @@ audio:
   whisper_model: "base"
   asr_language: "zh"
   enable_tts: false
-  tts_provider: "mimo"
+  tts_provider: "pyttsx3"
   tts_rate: 150
   tts_volume: 1.0
   tts_async: true
