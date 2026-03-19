@@ -5,14 +5,12 @@ MiMo TTS 后端（云端方案）
 """
 
 import base64
-import io
 import logging
 import os
 import queue
 import tempfile
 import threading
 import time
-from typing import Optional
 
 from .base import BaseTTS
 
