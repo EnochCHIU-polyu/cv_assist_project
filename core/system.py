@@ -17,10 +17,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import (
-    SystemConfig,
-    get_config_by_profile,
-)
+from config import SystemConfig, load_config
 from detectors.owl_vit_detector import OWLViTDetector
 from detectors.hand_tracker import HandTracker
 from detectors.depth_estimator import DepthEstimator
@@ -724,7 +721,7 @@ def main():
                        help='摄像头 ID')
     args = parser.parse_args()
 
-    config = get_config_by_profile(args.config)
+    config = load_config(profile=args.config)
     
     system = CVAssistSystem(config)
     system.run(args.camera)

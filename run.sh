@@ -21,5 +21,28 @@ fi
 # shellcheck source=/dev/null
 . ".venv/bin/activate"
 
+# Auto-install dependencies if core packages are missing
+if ! python -c "import torch, transformers, mediapipe" >/dev/null 2>&1; then
+    if [ -f requirements.txt ]; then
+        echo "[INFO] Installing missing dependencies from requirements.txt"
+        python -m pip install -r requirements.txt
+    else
+        echo "[WARN] requirements.txt not found, please install dependencies manually" >&2
+    fi
+fi
+
+# Default to tts config if user did not pass --config
+ARGS=("$@")
+HAS_CONFIG=false
+for arg in "$@"; do
+    if [ "$arg" = "--config" ]; then
+        HAS_CONFIG=true
+        break
+    fi
+done
+if [ "$HAS_CONFIG" = false ]; then
+    ARGS=(--config tts "$@")
+fi
+
 # Run main.py inside the virtual environment
-python -X utf8 main.py "$@"
+python -X utf8 main.py "${ARGS[@]}"
