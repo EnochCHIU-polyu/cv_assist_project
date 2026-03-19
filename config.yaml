@@ -1,0 +1,91 @@
+# CV 视觉辅助系统配置文件
+# =====================
+
+# 默认配置模式: fast / balanced / voice / tts / mimo-tts
+profile: balanced
+
+# 目标检测查询列表
+target_queries:
+  - "a cup"
+  - "a bottle"
+
+# 摄像头设置
+camera:
+  width: 640
+  height: 480
+
+# 模型配置
+model:
+  # OWL-ViT 目标检测
+  owlvit_model: "google/owlvit-base-patch32"
+  owlvit_input_size: [384, 384]
+  owlvit_confidence_threshold: 0.1
+  
+  # MiDaS 深度估计
+  midas_model: "MiDaS_small"
+  midas_scale: 0.5
+  
+  # MediaPipe 手部追踪
+  hand_max_num: 1
+  hand_min_confidence: 0.5
+
+# 优化配置
+optimization:
+  use_fp16: true
+  skip_frames_detection: 2
+  skip_frames_depth: 2
+  device: "auto"  # auto / cuda / cpu
+
+# 引导配置
+guidance:
+  horizontal_threshold: 30
+  vertical_threshold: 30
+  depth_threshold: 0.15
+  # 滞回阈值：进入对齐区域更严格，退出更宽松
+  horizontal_threshold_enter: 24
+  horizontal_threshold_exit: 36
+  vertical_threshold_enter: 24
+  vertical_threshold_exit: 36
+  depth_threshold_enter: 0.12
+  depth_threshold_exit: 0.18
+  # 抓握稳定判定
+  grasp_stable_frames: 8
+  grasp_release_frames: 3
+
+# 音频配置
+audio:
+  # ASR (语音识别)
+  enable_asr: false
+  whisper_model: "base"  # tiny / base / small / medium / large
+  asr_language: "zh"  # zh=中文, en=英文
+  
+  # TTS (文本转语音)
+  enable_tts: false
+  tts_provider: "mimo"  # pyttsx3 (离线) / mimo (小米云端)
+  tts_rate: 150
+  tts_volume: 1.0
+  tts_async: true
+  tts_instruction_interval_sec: 3.0
+  tts_grab_repeat_sec: 3.0
+  tts_max_queue_size: 1
+  tts_drop_stale: true
+  tts_state_change_bypass: true
+  
+  # MiMo TTS 音色
+  mimo_voice: "mimo_default"  # mimo_default / default_zh / default_en
+  
+  # 录音设置
+  record_sample_rate: 16000
+  record_duration: 5.0
+  auto_detect_silence: true
+  silence_threshold: 0.01
+  silence_duration: 1.5
+
+# 日志配置
+logging:
+  log_dir: "logs"
+  log_level: "INFO"
+  log_to_file: true
+  log_to_console: true
+  enable_fps_stats: true
+  fps_window_size: 30

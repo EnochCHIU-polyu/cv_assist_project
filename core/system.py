@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # 音频模块（可选）
 try:
     from audio.asr import ASREngine
-    from audio.tts import TTSEngine
+    from audio.tts import TTSEngine, create_tts
     from audio.audio_utils import AudioRecorder
     AUDIO_AVAILABLE = True
 except ImportError:
@@ -228,13 +228,7 @@ class CVAssistSystem:
         if cfg.enable_tts:
             try:
                 logger.info("正在初始化 TTS 引擎...")
-                self.tts_engine = TTSEngine(
-                    rate=cfg.tts_rate,
-                    volume=cfg.tts_volume,
-                    async_mode=cfg.tts_async,
-                    max_queue_size=cfg.tts_max_queue_size,
-                    drop_stale=cfg.tts_drop_stale,
-                )
+                self.tts_engine = create_tts(self.config)
                 self.tts_engine.get_debug_info()
                 logger.info("TTS 引擎初始化成功")
             except Exception as e:
@@ -723,9 +717,9 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='CV 视觉辅助系统')
-    parser.add_argument('--config', choices=['fast', 'balanced', 'voice', 'tts'], 
+    parser.add_argument('--config', choices=['fast', 'balanced', 'voice', 'tts', 'mimo-tts'], 
                        default='balanced',
-                       help='配置模式: fast=快速, balanced=平衡, voice=启用ASR+TTS, tts=仅启用TTS')
+                       help='配置模式: fast=快速, balanced=平衡, voice=启用ASR+TTS, tts=仅启用TTS, mimo-tts=MiMo云端TTS')
     parser.add_argument('--camera', type=int, default=0,
                        help='摄像头 ID')
     args = parser.parse_args()

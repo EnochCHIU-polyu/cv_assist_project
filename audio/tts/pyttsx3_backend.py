@@ -1,6 +1,7 @@
 """
-文本转语音模块 (TTS - Text-to-Speech)
-将文本转换为语音输出，用于给视觉障碍用户提供语音反馈
+pyttsx3 TTS 后端（离线方案）
+基于 pyttsx3 / Windows SAPI 实现跨平台的文本转语音功能。
+完全离线，无需网络连接。
 """
 
 import logging
@@ -9,6 +10,8 @@ import queue
 from typing import Optional
 import platform
 
+from .base import BaseTTS
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -16,7 +19,7 @@ try:
     PYTTSX3_AVAILABLE = True
 except ImportError:
     PYTTSX3_AVAILABLE = False
-    logger.warning("pyttsx3 未安装，TTS 功能将不可用")
+    logger.warning("pyttsx3 未安装，pyttsx3 TTS 后端将不可用")
 
 try:
     import win32com.client  # type: ignore
@@ -25,20 +28,19 @@ except ImportError:
     SAPI_AVAILABLE = False
 
 
-class TTSEngine:
+class Pyttsx3TTS(BaseTTS):
     """
-    文本转语音引擎
-    
-    使用 pyttsx3 库实现跨平台的文本转语音功能。
+    基于 pyttsx3 的离线文本转语音引擎
+
     支持异步播放，不会阻塞主程序。
-    
+
     特点:
     - 完全离线，无需网络连接
     - 跨平台支持 (Windows, macOS, Linux)
     - 支持多种语言和语音
     - 可控制语速、音量、声调
     """
-    
+
     def __init__(self,
                  rate: int = 150,
                  volume: float = 1.0,
@@ -47,13 +49,15 @@ class TTSEngine:
                  max_queue_size: int = 1,
                  drop_stale: bool = True):
         """
-        初始化 TTS 引擎
-        
+        初始化 pyttsx3 TTS 引擎
+
         参数:
             rate: 语速 (words per minute，默认 150，范围通常 100-300)
             volume: 音量 (0.0-1.0，默认 1.0)
             voice_index: 使用的语音索引 (None=默认语音)
             async_mode: 是否异步播放 (True=不阻塞主线程)
+            max_queue_size: 异步队列大小
+            drop_stale: 队列满时是否丢弃旧消息保留新消息
         """
         self.rate = rate
         self.volume = volume
@@ -78,19 +82,19 @@ class TTSEngine:
 
         if self.backend == 'pyttsx3' and not PYTTSX3_AVAILABLE:
             raise RuntimeError("pyttsx3 未安装。请运行: pip install pyttsx3")
-        
-        logger.info("正在初始化 TTS 引擎...")
-        
+
+        logger.info("正在初始化 pyttsx3 TTS 引擎...")
+
         try:
             if self.backend == 'sapi':
                 self._init_sapi(voice_index)
             else:
                 self._init_pyttsx3(voice_index)
-            
-            logger.info(f"TTS 引擎初始化成功 (backend={self.backend})")
-            
+
+            logger.info(f"pyttsx3 TTS 引擎初始化成功 (backend={self.backend})")
+
         except Exception as e:
-            logger.error(f"TTS 引擎初始化失败: {e}")
+            logger.error(f"pyttsx3 TTS 引擎初始化失败: {e}")
             raise
 
     def _init_sapi(self, voice_index: Optional[int]):
@@ -178,34 +182,23 @@ class TTSEngine:
             if any(k in desc or k in vid for k in chinese_keywords):
                 return voice
         return None
-    
+
     def _find_chinese_voice(self, voices) -> Optional[any]:
-        """
-        查找中文语音
-        
-        参数:
-            voices: 语音列表
-            
-        返回:
-            中文语音对象，如果没找到则返回 None
-        """
-        # Windows 中文语音标识
+        """查找中文语音"""
         chinese_keywords = ['zh', 'chinese', '中文', 'mandarin', 'huihui', 'kangkang']
-        
+
         for voice in voices:
             voice_name_lower = voice.name.lower()
             voice_id_lower = voice.id.lower()
-            
+
             for keyword in chinese_keywords:
                 if keyword in voice_name_lower or keyword in voice_id_lower:
                     return voice
-        
+
         return None
-    
+
     def _worker(self):
-        """
-        异步播放工作线程
-        """
+        """异步播放工作线程"""
         try:
             self.engine = pyttsx3.init()
             self._configure_pyttsx3_engine(self.engine, self._voice_index)
@@ -233,41 +226,32 @@ class TTSEngine:
                     if done_event is not None:
                         done_event.set()
                     self.speech_queue.task_done()
-                
+
             except Exception as e:
                 logger.error(f"TTS 播放错误: {e}", exc_info=True)
-    
+
     def speak(self, text: str, block: bool = False):
-        """
-        播放文本
-        
-        参数:
-            text: 要播放的文本
-            block: 是否阻塞等待播放完成 (仅在 async_mode=True 时有效)
-        """
+        """播放文本"""
         if not text or not text.strip():
             logger.warning("空文本，跳过 TTS 播放")
             return
-        
+
         text = text.strip()
         logger.info(f"TTS 请求: '{text}'")
-        
+
         try:
             if self.backend == 'sapi':
                 self.sapi_voice.Speak(text)
                 return
 
             if self.async_mode and not block:
-                # 异步播放
                 self._enqueue_async(text)
             elif self.async_mode and block:
-                # 在异步模式下也通过工作线程执行，避免跨线程访问 pyttsx3
                 self._enqueue_async(text, wait=True)
             else:
-                # 同步播放
                 self.engine.say(text)
                 self.engine.runAndWait()
-                
+
         except Exception as e:
             logger.error(f"TTS 播放失败: {e}", exc_info=True)
 
@@ -286,7 +270,6 @@ class TTSEngine:
                 return
 
         if not queued:
-            # 队列满且启用去旧：清空旧指令，仅保留最新文本
             self.clear_queue()
             try:
                 self.speech_queue.put_nowait(payload)
@@ -298,20 +281,13 @@ class TTSEngine:
         if wait and done_event is not None:
             if not done_event.wait(timeout=5.0):
                 logger.warning("TTS 同步等待超时，文本可能未及时播报")
-    
+
     def speak_instruction(self, instruction: str):
-        """
-        播放引导指令 (简化版，便于快速反馈)
-        
-        参数:
-            instruction: 引导指令文本
-        """
+        """播放引导指令"""
         self.speak(instruction)
-    
+
     def stop(self):
-        """
-        停止当前播放
-        """
+        """停止当前播放"""
         try:
             if self.backend == 'sapi':
                 return
@@ -320,16 +296,13 @@ class TTSEngine:
             logger.debug("TTS 停止播放")
         except Exception as e:
             logger.error(f"TTS 停止失败: {e}")
-    
+
     def clear_queue(self):
-        """
-        清空播放队列 (异步模式)
-        """
+        """清空播放队列 (异步模式)"""
         if getattr(self, 'async_mode', False) and hasattr(self, 'speech_queue'):
             while not self.speech_queue.empty():
                 try:
                     payload = self.speech_queue.get_nowait()
-                    # 如果是阻塞等待任务，通知调用方避免一直等待。
                     if isinstance(payload, tuple) and len(payload) == 2:
                         _, done_event = payload
                         if done_event is not None:
@@ -338,43 +311,28 @@ class TTSEngine:
                 except queue.Empty:
                     break
             logger.debug("TTS 队列已清空")
-    
+
     def set_rate(self, rate: int):
-        """
-        设置语速
-        
-        参数:
-            rate: 语速 (words per minute)
-        """
+        """设置语速"""
         self.rate = rate
         if self.backend == 'sapi':
             self.sapi_voice.Rate = self._wpm_to_sapi_rate(rate)
         else:
             self.engine.setProperty('rate', rate)
         logger.info(f"TTS 语速设置为: {rate}")
-    
+
     def set_volume(self, volume: float):
-        """
-        设置音量
-        
-        参数:
-            volume: 音量 (0.0-1.0)
-        """
-        volume = max(0.0, min(1.0, volume))  # 限制范围
+        """设置音量"""
+        volume = max(0.0, min(1.0, volume))
         self.volume = volume
         if self.backend == 'sapi':
             self.sapi_voice.Volume = int(volume * 100)
         else:
             self.engine.setProperty('volume', volume)
         logger.info(f"TTS 音量设置为: {volume}")
-    
+
     def list_voices(self):
-        """
-        列出所有可用语音
-        
-        返回:
-            语音列表 (包含 id 和 name)
-        """
+        """列出所有可用语音"""
         voice_list = []
         if self.backend == 'sapi':
             voices = self.sapi_voice.GetVoices()
@@ -405,34 +363,31 @@ class TTSEngine:
             voice_list.append(voice_info)
             logger.info(f"  [{idx}] {voice.name} - {voice.id}")
         return voice_list
-    
+
     def close(self):
-        """
-        关闭 TTS 引擎
-        """
+        """关闭 TTS 引擎"""
         try:
             if self.backend == 'sapi':
-                logger.info("TTS 引擎已关闭")
+                logger.info("pyttsx3 TTS 引擎已关闭")
                 return
 
             if getattr(self, 'async_mode', False) and hasattr(self, 'speech_queue'):
-                # 发送退出信号
                 self.clear_queue()
                 self.speech_queue.put(self._stop_token)
                 if hasattr(self, 'worker_thread'):
                     self.worker_thread.join(timeout=2.0)
-            
-            # 停止引擎
+
             if hasattr(self, 'engine'):
                 self.stop()
-            logger.info("TTS 引擎已关闭")
-            
+            logger.info("pyttsx3 TTS 引擎已关闭")
+
         except Exception as e:
-            logger.error(f"关闭 TTS 引擎失败: {e}")
+            logger.error(f"关闭 pyttsx3 TTS 引擎失败: {e}")
 
     def get_debug_info(self) -> dict:
-        """返回当前 TTS 关键状态，便于定位无声问题。"""
+        """返回当前 TTS 关键状态"""
         info = {
+            'provider': 'pyttsx3',
             'backend': self.backend,
             'async_mode': self.async_mode,
             'rate': self.rate,
@@ -453,33 +408,14 @@ class TTSEngine:
 
         logger.info(f"TTS 调试信息: {info}")
         return info
-    
+
     def __del__(self):
-        """
-        析构函数，确保资源释放
-        """
+        """析构函数，确保资源释放"""
         try:
             self.close()
         except:
             pass
 
 
-# 便捷函数
-def quick_speak(text: str, rate: int = 150):
-    """
-    快速播放文本 (创建临时 TTS 引擎)
-    
-    参数:
-        text: 要播放的文本
-        rate: 语速
-    """
-    if not PYTTSX3_AVAILABLE:
-        logger.warning("pyttsx3 不可用，无法播放语音")
-        return
-    
-    try:
-        engine = TTSEngine(rate=rate, async_mode=False)
-        engine.speak(text, block=True)
-        engine.close()
-    except Exception as e:
-        logger.error(f"快速播放失败: {e}")
+# 保持向后兼容的别名
+TTSEngine = Pyttsx3TTS
