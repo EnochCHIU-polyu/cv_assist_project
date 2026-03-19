@@ -16,5 +16,10 @@ if errorlevel 1 (
     )
 )
 
-REM 始终默认启用 mimo tts 配置；用户传 --config 可覆盖（argparse 后出现的同名参数优先）
-python main.py --config mimo-tts %*
+REM 若用户未传 --config，默认使用 tts（离线 pyttsx3）；如已配置 MIMO_API_KEY 可手动传 --config mimo-tts
+echo %* | find "--config" >nul 2>nul
+if errorlevel 1 (
+    python main.py --config tts %*
+) else (
+    python main.py %*
+)
