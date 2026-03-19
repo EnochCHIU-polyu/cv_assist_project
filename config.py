@@ -88,7 +88,7 @@ class AudioConfig:
     whisper_model: str = "base"
     asr_language: str = "zh"
     enable_tts: bool = False
-    tts_provider: str = "mimo"
+    tts_provider: str = "pyttsx3"
     tts_rate: int = 150
     tts_volume: float = 1.0
     tts_async: bool = True
