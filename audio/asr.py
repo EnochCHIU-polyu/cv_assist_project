@@ -212,3 +212,69 @@ class ASREngine:
         # 如果没有明确的命令关键词，返回整个文本作为目标
         logger.warning(f"无法解析指令: '{text}'，使用全文作为目标")
         return text if text else None
+    
+    def parse_command_with_vision(self,
+                                   text: str,
+                                   frames: Optional[list] = None,
+                                   llm_parser=None) -> Optional[str]:
+        """
+        解析用户指令，优先使用 LLM + 视觉上下文，回退到正则解析
+        
+        参数:
+            text: ASR 识别到的文本
+            frames: 摄像头帧列表 (numpy arrays, BGR format) 用于视觉上下文
+            llm_parser: LLMVisionParser 实例（可选）
+            
+        返回:
+            提取的目标物体名称
+            
+        工作流程:
+            1. 如果提供了 LLM parser 和 frames，尝试使用 LLM 解析
+            2. 如果 LLM 解析成功，返回 LLM 结果
+            3. 如果 LLM 失败或未提供，回退到正则 parse_command()
+            4. 记录使用的方法 (LLM vs Regex)
+        """
+        if not text or not text.strip():
+            logger.warning("Empty text provided to parse_command_with_vision")
+            return None
+        
+        # 尝试 LLM 视觉解析
+        if llm_parser is not None and frames:
+            try:
+                logger.debug(f"Attempting LLM vision parsing: text='{text}', frames={len(frames)}")
+                result = llm_parser.parse_with_vision(text, frames)
+                
+                if result and 'target' in result:
+                    target = result['target'].strip()
+                    if target:
+                        logger.info(
+                            f"LLM vision parsing succeeded: "
+                            f"'{text}' -> '{target}'"
+                        )
+                        return target
+                else:
+                    logger.debug("LLM vision parsing returned empty result")
+                    
+            except Exception as e:
+                logger.error(
+                    f"LLM vision parsing exception: {e}. "
+                    f"Falling back to regex parsing.",
+                    exc_info=True
+                )
+        else:
+            if llm_parser is None:
+                logger.debug("No LLM parser provided, using regex parsing")
+            if not frames:
+                logger.debug("No frames provided, using regex parsing")
+        
+        # 回退到正则解析
+        logger.debug(f"Falling back to regex parse_command: '{text}'")
+        target = self.parse_command(text)
+        
+        if target:
+            logger.info(f"Regex parsing result: '{text}' -> '{target}'")
+            return target
+        
+        logger.warning(f"Both LLM and regex parsing failed for: '{text}'")
+        return None
+

@@ -4,26 +4,26 @@
 
 # ---- Profile 预设（仅列出与 base 不同的字段） ----
 profiles:
-  fast:  # 性能优先，适合低配设备
+  fast: # 性能优先，适合低配设备
     model:
       owlvit_input_size: [320, 320]
     optimization:
       skip_frames_detection: 3
       skip_frames_depth: 3
 
-  voice:  # ASR + TTS 全语音交互
+  voice: # ASR + TTS 全语音交互
     audio:
       enable_asr: true
       enable_tts: true
       whisper_model: base
       tts_rate: 180
 
-  tts:  # 仅 TTS 语音播报（默认离线 pyttsx3）
+  tts: # 仅 TTS 语音播报（默认离线 pyttsx3）
     audio:
       enable_tts: true
       tts_rate: 180
 
-  mimo-tts:  # MiMo 云端 TTS
+  mimo-tts: # MiMo 云端 TTS
     audio:
       enable_tts: true
       tts_provider: mimo
@@ -53,7 +53,7 @@ optimization:
   use_fp16: true
   skip_frames_detection: 2
   skip_frames_depth: 2
-  device: "auto"  # auto / cuda / cpu
+  device: "auto" # auto / cuda / cpu
 
 guidance:
   horizontal_threshold: 30
@@ -71,7 +71,7 @@ guidance:
 audio:
   enable_asr: false
   whisper_model: "base"
-  asr_language: "zh"
+  asr_language: "en"
   enable_tts: false
   tts_provider: "pyttsx3"
   tts_rate: 150
@@ -88,6 +88,13 @@ audio:
   auto_detect_silence: true
   silence_threshold: 0.01
   silence_duration: 1.5
+
+llm_vision:
+  enable_llm_parsing: true
+  poe_model: "deepseek-v3.2"
+  poe_timeout_sec: 5.0
+  max_frames_for_vision: 4
+  api_retry_count: 1
 
 logging:
   log_dir: "logs"

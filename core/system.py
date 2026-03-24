@@ -12,6 +12,7 @@ import threading
 import queue
 from typing import Dict, List, Optional
 from dataclasses import dataclass
+from collections import deque
 
 import sys
 import os
@@ -31,6 +32,7 @@ try:
     from audio.asr import ASREngine
     from audio.tts import TTSEngine, create_tts
     from audio.audio_utils import AudioRecorder
+    from audio.llm_vision import LLMVisionParser, create_llm_vision_parser
     AUDIO_AVAILABLE = True
 except ImportError:
     AUDIO_AVAILABLE = False
@@ -195,8 +197,9 @@ class CVAssistSystem:
         logger.info("所有组件初始化成功")
     
     def _init_audio_components(self):
-        """初始化音频组件 (ASR 和 TTS)"""
+        """初始化音频组件 (ASR, LLM Vision, 和 TTS)"""
         cfg = self.config.audio
+        llm_cfg = self.config.llm_vision
         
         # 初始化 ASR
         if cfg.enable_asr:
@@ -221,6 +224,29 @@ class CVAssistSystem:
                 self.asr_engine = None
                 self.audio_recorder = None
         
+        # 初始化 LLM Vision Parser（用于增强语音识别）
+        self.llm_vision_parser = None
+        if AUDIO_AVAILABLE and cfg.enable_asr and llm_cfg.enable_llm_parsing:
+            try:
+                logger.info("正在初始化 LLM Vision 解析器...")
+                # 通过 config 创建 LLM parser
+                config_dict = {
+                    "poe_api_key": llm_cfg.poe_api_key,
+                    "poe_model": llm_cfg.poe_model,
+                    "poe_timeout_sec": llm_cfg.poe_timeout_sec,
+                    "max_frames_for_vision": llm_cfg.max_frames_for_vision,
+                    "api_retry_count": llm_cfg.api_retry_count
+                }
+                self.llm_vision_parser = create_llm_vision_parser(config_dict)
+                
+                if self.llm_vision_parser:
+                    logger.info("LLM Vision 解析器初始化成功")
+                else:
+                    logger.info("LLM Vision 解析器未启用（API key 未配置）")
+            except Exception as e:
+                logger.error(f"LLM Vision 初始化失败: {e}")
+                self.llm_vision_parser = None
+        
         # 初始化 TTS
         if cfg.enable_tts:
             try:
@@ -233,7 +259,7 @@ class CVAssistSystem:
                 self.tts_engine = None
 
     def _init_runtime_states(self):
-        """初始化运行时状态（线程、播报节流等）。"""
+        """初始化运行时状态（线程、播报节流、帧缓冲等）。"""
         self._voice_thread = None
         self._voice_in_progress = False
         self._voice_result_queue = queue.Queue()
@@ -242,6 +268,11 @@ class CVAssistSystem:
         self._last_instruction_state = None
         self._last_instruction_ts = 0.0
         self._last_grab_ts = 0.0
+        
+        # 帧缓冲，用于 LLM Vision 解析（存储最后 4 帧）
+        # 在 _handle_voice_input 中使用
+        self._frame_buffer = deque(maxlen=self.config.llm_vision.max_frames_for_vision)
+        self._frame_buffer_lock = threading.Lock()  # 保护帧缓冲的线程安全
 
     def _reset_tts_context(self):
         """目标切换后清理播报上下文，避免旧指令残留。"""
@@ -525,8 +556,23 @@ class CVAssistSystem:
             
             logger.info(f"识别结果: '{text}'")
             
-            # 解析指令，提取目标物体
-            target = self.asr_engine.parse_command(text)
+            # 准备用于 LLM Vision 的帧
+            frames_snapshot = None
+            if self.llm_vision_parser and self.llm_vision_parser.enabled:
+                # 获取当前帧缓冲的快照
+                with self._frame_buffer_lock:
+                    if len(self._frame_buffer) > 0:
+                        frames_snapshot = list(self._frame_buffer)
+                        logger.debug(f"Captured {len(frames_snapshot)} frames for LLM vision")
+                    else:
+                        logger.debug("Frame buffer is empty, LLM vision will not be used")
+            
+            # 解析指令，提取目标物体（优先使用 LLM + Vision，回退到正则解析）
+            target = self.asr_engine.parse_command_with_vision(
+                text=text,
+                frames=frames_snapshot,
+                llm_parser=self.llm_vision_parser
+            )
             
             if target:
                 logger.info(f"语音解析目标成功: {target}")
@@ -616,6 +662,11 @@ class CVAssistSystem:
                 
                 # 水平翻转图像（镜像效果）
                 frame = cv2.flip(frame, 1)
+                
+                # 更新帧缓冲（用于 LLM Vision 解析）
+                # 保存最后 N 帧（默认 4 帧），用于语音输入时的视觉上下文
+                with self._frame_buffer_lock:
+                    self._frame_buffer.append(frame.copy())
                 
                 # 处理帧
                 try:

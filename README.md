@@ -3,6 +3,7 @@
 ---
 
 <a name="english"></a>
+
 # CV Assist — Visual Assistance System for the Visually Impaired
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
@@ -71,6 +72,7 @@ A real-time visual assistance system designed to help visually impaired users lo
 - **Real-time depth estimation** — monocular depth via MiDaS for distance-aware guidance
 - **Hand tracking with gesture recognition** — detects open, closed, and pointing gestures
 - **Voice control** — speak to set the target object (Chinese & English supported)
+- **LLM-assisted voice recognition** — ✨ NEW! Uses Poe API + deepseek LLM with visual context to correct speech errors and improve accuracy
 - **Speech guidance** — audio instructions guide the user's hand toward the target
 - **Hysteresis-based guidance** — prevents oscillation at alignment boundaries
 - **Configurable profiles** — fast / balanced / voice / tts / mimo-tts presets
@@ -84,6 +86,7 @@ A real-time visual assistance system designed to help visually impaired users lo
 - **OS**: Windows 10+, Linux, macOS
 - **Hardware**: Webcam; GPU (CUDA) recommended but not required
 - **Disk**: ~2 GB for models (downloaded on first run)
+- _Optional_: Poe API key for LLM-assisted voice recognition enhancement
 
 ---
 
@@ -101,6 +104,7 @@ chmod +x run.sh
 ```
 
 The script will:
+
 1. Create a `.venv` virtual environment (if not exists)
 2. Activate it
 3. Install dependencies from `requirements.txt` (if missing)
@@ -113,6 +117,7 @@ run.bat
 ```
 
 The script will:
+
 1. Set UTF-8 environment variables
 2. Check for core dependencies and install if missing
 3. Launch with TTS enabled (`--config tts`)
@@ -156,13 +161,13 @@ Environment variables (.env)  >  config.yaml profile overrides  >  config.yaml b
 
 Pass `--config <profile>` to select a preset. Profiles are defined in the `profiles:` section of `config.yaml` — each profile is a partial override merged on top of the base configuration:
 
-| Profile    | ASR | TTS | TTS Provider | Use Case                          |
-|------------|-----|-----|--------------|-----------------------------------|
-| `fast`     | Off | Off | —            | Low-resource / testing            |
-| `balanced` | Off | Off | —            | Default, no audio                 |
-| `voice`    | On  | On  | pyttsx3      | Full voice interaction            |
-| `tts`      | Off | On  | pyttsx3      | Speech guidance only (default)    |
-| `mimo-tts` | Off | On  | MiMo cloud   | Higher-quality cloud TTS          |
+| Profile    | ASR | TTS | TTS Provider | Use Case                       |
+| ---------- | --- | --- | ------------ | ------------------------------ |
+| `fast`     | Off | Off | —            | Low-resource / testing         |
+| `balanced` | Off | Off | —            | Default, no audio              |
+| `voice`    | On  | On  | pyttsx3      | Full voice interaction         |
+| `tts`      | Off | On  | pyttsx3      | Speech guidance only (default) |
+| `mimo-tts` | Off | On  | MiMo cloud   | Higher-quality cloud TTS       |
 
 > `balanced` has no overrides — it uses the base configuration directly.
 
@@ -266,10 +271,10 @@ OPENAI_API_KEY=your_openai_key_here
 
 Two backends are available:
 
-| Provider   | Offline | Quality | Setup                          |
-|------------|---------|---------|--------------------------------|
-| `pyttsx3`  | Yes     | Basic   | No extra config needed         |
-| `mimo`     | No      | High    | Requires `MIMO_API_KEY` in `.env` |
+| Provider  | Offline | Quality | Setup                             |
+| --------- | ------- | ------- | --------------------------------- |
+| `pyttsx3` | Yes     | Basic   | No extra config needed            |
+| `mimo`    | No      | High    | Requires `MIMO_API_KEY` in `.env` |
 
 ### ASR (Automatic Speech Recognition)
 
@@ -292,11 +297,103 @@ For detailed audio documentation, see [audio/README.md](audio/README.md).
 
 ## Keyboard Controls
 
-| Key | Action                    |
-|-----|---------------------------|
-| `q` | Quit                      |
-| `d` | Toggle depth visualization|
-| `v` | Start voice input         |
+| Key | Action                     |
+| --- | -------------------------- |
+| `q` | Quit                       |
+| `d` | Toggle depth visualization |
+| `v` | Start voice input          |
+
+---
+
+## LLM-Assisted Voice Recognition with Vision
+
+**NEW FEATURE**: The system now integrates with Poe API (using deepseek-v3.2 LLM) to enhance voice command recognition using visual context from camera frames. This significantly improves accuracy for users with unclear speech, accents, or background noise.
+
+### How It Works
+
+When you speak a command (e.g., "find a phone" but ASR hears "ana more i´m up phone"):
+
+1. **Whisper ASR** transcribes the audio (may have errors)
+2. **LLM + Vision** analyzes the transcribed text together with 4 recent camera frames
+3. **Corrected Output**: LLM returns the most likely target object (e.g., "phone")
+4. **OWL-ViT Detection** searches for the corrected target
+
+### Setup
+
+**Step 1** — Get a Poe API key:
+
+- Visit [poe.com/api/key](https://poe.com/api/key)
+- Create an account and generate your API key
+
+**Step 2** — Add to `.env`:
+
+```env
+POE_API_KEY=your_poe_api_key_here
+```
+
+**Step 3** — Enable in config (automatic if ASR is enabled):
+
+- No additional configuration needed!
+- The feature is automatically enabled when:
+  - ASR is enabled (`enable_asr: true`)
+  - `POE_API_KEY` is set in `.env`
+
+**Step 4** — Use voice commands:
+
+```bash
+python main.py --config voice  # Full ASR + TTS + LLM Vision
+# or
+python main.py --config tts    # TTS guidance only
+```
+
+### Configuration
+
+Edit `config.yaml` to customize LLM behavior:
+
+```yaml
+llm_vision:
+  enable_llm_parsing: true # Enable/disable LLM vision parsing
+  poe_model: "deepseek-v3.2" # LLM model (don't change)
+  poe_timeout_sec: 5.0 # API call timeout
+  max_frames_for_vision: 4 # Number of frames to send
+  api_retry_count: 1 # Retry attempts on timeout
+```
+
+### Performance Notes
+
+- **Accuracy**: Significantly improves robustness to speech errors and accents
+- **Latency**: API call adds ~1-2 seconds to target update (acceptable for accessibility use)
+- **Async Processing**: LLM analysis happens in the background; video streaming is **never blocked**
+- **Fallback**: If API fails or times out, system falls back to regex-based parsing automatically
+- **Frames**: Uses 4 recent frames to provide rich visual context for the LLM
+
+### Example Scenarios
+
+| What User Says                | Whisper Output | LLM + Vision Output | Result      |
+| ----------------------------- | -------------- | ------------------- | ----------- |
+| "找手机" (find phone)         | "找爱手及"     | "phone"             | ✓ Correct   |
+| "find the cup" (unclear)      | "find the cut" | "cup"               | ✓ Corrected |
+| "哪里是书" (where's the book) | "哪里是鼠"     | "book"              | ✓ Fixed     |
+
+### Troubleshooting
+
+**LLM Vision not working?**
+
+- Check `.env` file has `POE_API_KEY=<your_key>`
+- Verify key is valid: `python -c "from audio.llm_vision import LLMVisionParser; LLMVisionParser('your_key')"
+- Check logs for "LLM Vision Parser initialized" message
+- If disabled, you'll see logs like "LLM vision parsing disabled" or "POE_API_KEY not configured"
+
+**Performance too slow?**
+
+- Reduce `max_frames_for_vision` in config.yaml (default 4) to use fewer frames
+- Increase `poe_timeout_sec` if getting frequent timeouts
+
+**API errors?**
+
+- Ensure you have internet connectivity
+- Verify Poe API key is valid and has remaining quota
+- Check Poe status page for API outages
 
 ---
 
@@ -308,6 +405,9 @@ python tests/test_all.py
 
 # Audio test — TTS, recording, and ASR
 python tests/test_audio.py
+
+# LLM Vision test — API integration and fallback
+python tests/test_llm_vision.py
 
 # Guidance logic test — hysteresis and stability
 python tests/test_guidance.py
@@ -343,6 +443,7 @@ cv_assist_project/
 ├── audio/
 │   ├── asr.py                   # Whisper ASR engine
 │   ├── audio_utils.py           # Audio recording utilities
+│   ├── llm_vision.py            # LLM Vision Parser — Poe API integration for voice correction
 │   └── tts/
 │       ├── base.py              # Abstract TTS interface
 │       ├── pyttsx3_backend.py   # Offline TTS (pyttsx3)
@@ -355,7 +456,8 @@ cv_assist_project/
     ├── test_all.py              # Import smoke test
     ├── test_audio.py            # Audio subsystem tests
     ├── test_guidance.py         # Guidance hysteresis tests
-    └── test_logging.py          # Logging & FPS tests
+    ├── test_logging.py          # Logging & FPS tests
+    └── test_llm_vision.py       # LLM Vision Parser tests
 ```
 
 ---
@@ -374,6 +476,7 @@ cv_assist_project/
 ---
 
 <a name="中文"></a>
+
 # CV Assist — 视觉辅助系统
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
@@ -442,6 +545,7 @@ cv_assist_project/
 - **实时深度估计** — 基于 MiDaS 的单目深度感知，提供距离引导
 - **手部追踪与手势识别** — 检测张开、握拳、指向三种手势
 - **语音控制** — 支持中英文语音输入设定搜索目标
+- **LLM 增强语音识别** — 用 Poe API + deepseek LLM + 视觉上下文，纠正语音错误并提高准确度
 - **语音播报引导** — 通过语音指令引导用户将手移向目标
 - **滞回引导算法** — 防止对齐边界的指令来回跳动
 - **可配置预设** — fast / balanced / voice / tts / mimo-tts 五种配置模式
@@ -455,6 +559,7 @@ cv_assist_project/
 - **操作系统**：Windows 10+、Linux、macOS
 - **硬件**：摄像头；推荐 GPU（CUDA），非必须
 - **磁盘**：约 2 GB（模型首次运行时自动下载）
+- _可选_：Poe API Key，用于增强 LLM 语音识别
 
 ---
 
@@ -472,6 +577,7 @@ chmod +x run.sh
 ```
 
 脚本将自动：
+
 1. 创建 `.venv` 虚拟环境（如不存在）
 2. 激活虚拟环境
 3. 安装 `requirements.txt` 中的依赖（如缺失）
@@ -484,6 +590,7 @@ run.bat
 ```
 
 脚本将自动：
+
 1. 设置 UTF-8 环境变量
 2. 检查并安装缺失的依赖
 3. 以 TTS 模式启动（`--config tts`）
@@ -527,13 +634,13 @@ python tests/test_all.py
 
 通过 `--config <profile>` 选择预设。预设定义在 `config.yaml` 的 `profiles:` 段中，每个预设只列出与基础配置不同的字段，系统会自动合并：
 
-| 预设       | ASR | TTS | TTS 提供商 | 适用场景                 |
-|------------|-----|-----|------------|--------------------------|
-| `fast`     | 关  | 关  | —          | 低资源环境 / 测试        |
-| `balanced` | 关  | 关  | —          | 默认，无语音             |
-| `voice`    | 开  | 开  | pyttsx3    | 完整语音交互             |
-| `tts`      | 关  | 开  | pyttsx3    | 仅语音播报（部署脚本默认）|
-| `mimo-tts` | 关  | 开  | MiMo 云端  | 更高质量的云端 TTS       |
+| 预设       | ASR | TTS | TTS 提供商 | 适用场景                   |
+| ---------- | --- | --- | ---------- | -------------------------- |
+| `fast`     | 关  | 关  | —          | 低资源环境 / 测试          |
+| `balanced` | 关  | 关  | —          | 默认，无语音               |
+| `voice`    | 开  | 开  | pyttsx3    | 完整语音交互               |
+| `tts`      | 关  | 开  | pyttsx3    | 仅语音播报（部署脚本默认） |
+| `mimo-tts` | 关  | 开  | MiMo 云端  | 更高质量的云端 TTS         |
 
 > `balanced` 无额外 override，直接使用基础配置。
 
@@ -638,7 +745,7 @@ OPENAI_API_KEY=your_openai_key_here
 支持两种后端：
 
 | 提供商    | 离线 | 质量 | 配置要求                   |
-|-----------|------|------|----------------------------|
+| --------- | ---- | ---- | -------------------------- |
 | `pyttsx3` | 是   | 基础 | 无需额外配置               |
 | `mimo`    | 否   | 高   | 需在 `.env` 中设置 API Key |
 
@@ -663,11 +770,103 @@ OPENAI_API_KEY=your_openai_key_here
 
 ## 键盘控制
 
-| 按键 | 操作             |
-|------|------------------|
-| `q`  | 退出             |
-| `d`  | 切换深度可视化   |
-| `v`  | 开始语音输入     |
+| 按键 | 操作           |
+| ---- | -------------- |
+| `q`  | 退出           |
+| `d`  | 切换深度可视化 |
+| `v`  | 开始语音输入   |
+
+---
+
+## LLM 增强语音识别与视觉理解
+
+**新功能**：系统现已集成 Poe API（使用 deepseek-v3.2 LLM）以增强语音命令识别准确度。LLM 可同时分析识别到的文本和摄像头中的视觉信息，大幅提高了对口音、背景噪声和不清晰语音的鲁棒性。
+
+### 工作流程
+
+当用户说一个命令时（例如用户说"找手机"，但 Whisper ASR 识别为"找爱手及"）：
+
+1. **Whisper ASR** 转录音频（可能有错误）
+2. **LLM + 视觉** 将转录文本与最近 4 帧摄像头图像一起分析
+3. **纠正输出**: LLM 返回最可能的目标物体（例如"手机"）
+4. **OWL-ViT 检测** 搜索纠正后的目标
+
+### 配置步骤
+
+**第一步** — 获取 Poe API Key：
+
+- 访问 [poe.com/api/key](https://poe.com/api/key)
+- 创建账户并生成你的 API Key
+
+**第二步** — 添加到 `.env` 文件：
+
+```env
+POE_API_KEY=your_poe_api_key_here
+```
+
+**第三步** — 在配置中启用（如果 ASR 启用则自动启用）：
+
+- 无需额外配置！
+- 满足以下条件时自动启用：
+  - ASR 已启用（`enable_asr: true`）
+  - `.env` 中已设置 `POE_API_KEY`
+
+**第四步** — 使用语音命令：
+
+```bash
+python main.py --config voice   # 完整的 ASR + TTS + LLM 视觉分析
+# 或
+python main.py --config tts     # 仅 TTS 播报
+```
+
+### 配置参数
+
+编辑 `config.yaml` 自定义 LLM 行为：
+
+```yaml
+llm_vision:
+  enable_llm_parsing: true # 启用/禁用 LLM 视觉解析
+  poe_model: "deepseek-v3.2" # LLM 模型（不建议修改）
+  poe_timeout_sec: 5.0 # API 调用超时时间（秒）
+  max_frames_for_vision: 4 # 发送的帧数
+  api_retry_count: 1 # 超时时的重试次数
+```
+
+### 性能说明
+
+- **准确性**：大幅提高了对语音错误和口音的鲁棒性
+- **延迟**：API 调用增加约 1-2 秒的目标更新延迟（可接受）
+- **异步处理**: LLM 分析在后台进行；视频流处理**绝不会**被阻塞
+- **回退机制**: 如果 API 失败或超时，系统自动回退到正则解析
+- **视觉信息**: 使用 4 帧最近的摄像头画面为 LLM 提供丰富的视觉上下文
+
+### 效果示例
+
+| 用户说的话 | Whisper 输出 | LLM + 视觉输出 | 结果   |
+| ---------- | ------------ | -------------- | ------ |
+| "找手机"   | "找爱手及"   | "手机"         | ✓ 正确 |
+| "杯子在哪" | "怖子在哪"   | "cup" / "杯子" | ✓ 纠正 |
+| "找书"     | "找鼠"       | "book" / "书"  | ✓ 修正 |
+
+### 故障排除
+
+**LLM 视觉功能无法工作？**
+
+- 检查 `.env` 文件中是否有 `POE_API_KEY=<你的密钥>`
+- 验证 API Key 有效性
+- 查看日志中是否有 "LLM Vision Parser initialized" 消息
+- 如果禁用，你会看到 "LLM vision parsing disabled" 或 "POE_API_KEY not configured" 的日志
+
+**性能过慢？**
+
+- 在 config.yaml 中减少 `max_frames_for_vision`（默认为 4）以使用更少的帧
+- 如果经常超时，增加 `poe_timeout_sec`
+
+**API 错误？**
+
+- 确保网络连接正常
+- 验证 Poe API Key 有效且配额充足
+- 检查 Poe 状态页面是否有 API 故障
 
 ---
 
@@ -679,6 +878,9 @@ python tests/test_all.py
 
 # 音频测试 — TTS、录音和 ASR
 python tests/test_audio.py
+
+# LLM 视觉测试 — API 集成与回退机制
+python tests/test_llm_vision.py
 
 # 引导逻辑测试 — 滞回阈值和稳定性
 python tests/test_guidance.py
@@ -714,6 +916,7 @@ cv_assist_project/
 ├── audio/
 │   ├── asr.py                   # Whisper 语音识别引擎
 │   ├── audio_utils.py           # 录音工具
+│   ├── llm_vision.py            # LLM 视觉解析器 — Poe API 集成用于语音纠正
 │   └── tts/
 │       ├── base.py              # TTS 抽象接口
 │       ├── pyttsx3_backend.py   # 离线 TTS（pyttsx3）
@@ -726,7 +929,8 @@ cv_assist_project/
     ├── test_all.py              # 导入冒烟测试
     ├── test_audio.py            # 音频子系统测试
     ├── test_guidance.py         # 引导滞回逻辑测试
-    └── test_logging.py          # 日志与 FPS 测试
+    ├── test_logging.py          # 日志与 FPS 测试
+    └── test_llm_vision.py       # LLM 视觉解析器测试
 ```
 
 ---
