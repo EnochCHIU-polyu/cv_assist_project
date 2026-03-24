@@ -86,7 +86,7 @@ class GuidanceConfig:
 class AudioConfig:
     enable_asr: bool = False
     whisper_model: str = "base"
-    asr_language: str = "zh"
+    asr_language: str = "en"
     enable_tts: bool = False
     tts_provider: str = "pyttsx3"
     tts_rate: int = 150
@@ -107,6 +107,16 @@ class AudioConfig:
 
 
 @dataclass
+class LLMVisionConfig:
+    enable_llm_parsing: bool = True
+    poe_api_key: str = ""
+    poe_model: str = "deepseek-v3.2"
+    poe_timeout_sec: float = 5.0
+    max_frames_for_vision: int = 4
+    api_retry_count: int = 1
+
+
+@dataclass
 class LoggingConfig:
     log_dir: str = "logs"
     log_level: str = "INFO"
@@ -123,6 +133,7 @@ class SystemConfig:
     guidance: GuidanceConfig = field(default_factory=GuidanceConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    llm_vision: LLMVisionConfig = field(default_factory=LLMVisionConfig)
     target_queries: List[str] = field(default_factory=lambda: ["a cup", "a bottle"])
     camera_width: int = 640
     camera_height: int = 480
@@ -214,9 +225,13 @@ def _load_yaml(path: str) -> Dict[str, Any]:
 
 
 def _apply_env(config: SystemConfig) -> None:
-    key = os.environ.get("MIMO_API_KEY") or os.environ.get("XIAOMI_MIMO_API_KEY")
-    if key:
-        config.audio.mimo_api_key = key
+    mimo_key = os.environ.get("MIMO_API_KEY") or os.environ.get("XIAOMI_MIMO_API_KEY")
+    if mimo_key:
+        config.audio.mimo_api_key = mimo_key
+    
+    poe_key = os.environ.get("POE_API_KEY")
+    if poe_key:
+        config.llm_vision.poe_api_key = poe_key
 
 
 # ---------------------------------------------------------------------------
