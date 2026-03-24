@@ -83,6 +83,16 @@ class GuidanceConfig:
 
 
 @dataclass
+class ObstacleConfig:
+    enable_obstacle_detection: bool = True
+    obstacle_trajectory_frames: int = 10          # Number of frames to keep for hand position history
+    obstacle_prediction_distance: float = 50.0    # How far ahead (pixels) to check for obstacles
+    obstacle_depth_threshold: float = 0.15        # Relative depth difference to trigger warning
+    obstacle_warning_cooldown: float = 3.0        # Minimum seconds between obstacle warnings
+    obstacle_sample_count: int = 5                # Number of points to sample along the trajectory
+
+
+@dataclass
 class AudioConfig:
     enable_asr: bool = False
     whisper_model: str = "base"
@@ -123,6 +133,7 @@ class SystemConfig:
     guidance: GuidanceConfig = field(default_factory=GuidanceConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    obstacle: ObstacleConfig = field(default_factory=ObstacleConfig)
     target_queries: List[str] = field(default_factory=lambda: ["a cup", "a bottle"])
     camera_width: int = 640
     camera_height: int = 480

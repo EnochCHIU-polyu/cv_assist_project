@@ -21,6 +21,7 @@ A real-time visual assistance system designed to help visually impaired users lo
 - [Configuration](#configuration)
 - [API Key Setup](#api-key-setup)
 - [Audio Guide (ASR & TTS)](#audio-guide-asr--tts)
+- [Documentation & Reports](#documentation--reports)
 - [Keyboard Controls](#keyboard-controls)
 - [Testing](#testing)
 - [Project Structure](#project-structure)
@@ -287,6 +288,13 @@ Two backends are available:
 4. The system will start guiding you with audio instructions
 
 For detailed audio documentation, see [audio/README.md](audio/README.md).
+
+---
+
+## Documentation & Reports
+
+- Project docs index: [docs/README.md](docs/README.md)
+- Latest update report: [docs/update_reports/2026-03-24_tts_and_guidance_update.md](docs/update_reports/2026-03-24_tts_and_guidance_update.md)
 
 ---
 

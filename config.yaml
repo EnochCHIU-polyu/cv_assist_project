@@ -89,6 +89,14 @@ audio:
   silence_threshold: 0.01
   silence_duration: 1.5
 
+obstacle:
+  enable_obstacle_detection: true
+  obstacle_trajectory_frames: 10
+  obstacle_prediction_distance: 50.0
+  obstacle_depth_threshold: 0.15
+  obstacle_warning_cooldown: 3.0
+  obstacle_sample_count: 5
+
 logging:
   log_dir: "logs"
   log_level: "INFO"

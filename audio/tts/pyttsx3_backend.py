@@ -298,7 +298,14 @@ class Pyttsx3TTS(BaseTTS):
             logger.error(f"TTS 停止失败: {e}")
 
     def clear_queue(self):
-        """清空播放队列 (异步模式)"""
+        """清空播放队列并停止当前正在播放的音频 (异步模式)。
+        用于高优先级语音（如避障警告）需要立即打断当前播报的场景。
+        """
+        # 先停止当前正在播放的音频
+        try:
+            self.stop()
+        except Exception:
+            pass
         if getattr(self, 'async_mode', False) and hasattr(self, 'speech_queue'):
             while not self.speech_queue.empty():
                 try:

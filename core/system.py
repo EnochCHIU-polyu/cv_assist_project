@@ -21,6 +21,7 @@ from config import SystemConfig, load_config
 from detectors.owl_vit_detector import OWLViTDetector
 from detectors.hand_tracker import HandTracker
 from detectors.depth_estimator import DepthEstimator
+from detectors.obstacle_detector import ObstacleDetector, ObstacleDetectionResult
 from core.guidance import GuidanceController, GuidanceResult
 from utils.logger import setup_logging, FPSCounter
 
@@ -47,10 +48,11 @@ class FrameResult:
     hands: List[Dict]                # 手部检测结果列表
     depth_map: Optional[np.ndarray]  # 深度图
     guidance: Optional[GuidanceResult]  # 引导信息
-    total_time_ms: float             # 总处理时间(毫秒)
-    detection_time_ms: float         # 目标检测时间
-    hand_time_ms: float              # 手部检测时间
-    depth_time_ms: float             # 深度估计时间
+    obstacle: Optional[ObstacleDetectionResult] = None  # 障碍物检测结果
+    total_time_ms: float = 0.0       # 总处理时间(毫秒)
+    detection_time_ms: float = 0.0   # 目标检测时间
+    hand_time_ms: float = 0.0        # 手部检测时间
+    depth_time_ms: float = 0.0       # 深度估计时间
 
 
 class CVAssistSystem:
@@ -190,6 +192,16 @@ class CVAssistSystem:
             depth_threshold_exit=cfg.guidance.depth_threshold_exit,
             grasp_stable_frames=cfg.guidance.grasp_stable_frames,
             grasp_release_frames=cfg.guidance.grasp_release_frames,
+        )
+        
+        # 初始化障碍物检测器
+        self.obstacle_detector = ObstacleDetector(
+            trajectory_frames=cfg.obstacle.obstacle_trajectory_frames,
+            prediction_distance=cfg.obstacle.obstacle_prediction_distance,
+            depth_threshold=cfg.obstacle.obstacle_depth_threshold,
+            warning_cooldown=cfg.obstacle.obstacle_warning_cooldown,
+            sample_count=cfg.obstacle.obstacle_sample_count,
+            enabled=cfg.obstacle.enable_obstacle_detection,
         )
         
         logger.info("所有组件初始化成功")
@@ -405,6 +417,14 @@ class CVAssistSystem:
                 hand.get('gesture', 'unknown')
             )
         
+        # 障碍物检测（只要检测到手部且深度图可用）
+        obstacle_result = None
+        if hands and depth_map is not None:
+            hand_center = hands[0]['center']
+            obstacle_result = self.obstacle_detector.detect(
+                depth_map, hand_center, current_time=time.time()
+            )
+        
         # 计算总耗时
         total_time = (time.perf_counter() - start) * 1000
         
@@ -414,6 +434,7 @@ class CVAssistSystem:
             hands=hands,
             depth_map=depth_map,
             guidance=guidance_result,
+            obstacle=obstacle_result,
             total_time_ms=total_time,
             detection_time_ms=det_time,
             hand_time_ms=hand_time,
@@ -452,6 +473,10 @@ class CVAssistSystem:
                 result.detections[0]['center'],
                 result.guidance
             )
+
+        # 绘制障碍物检测结果
+        if result.obstacle and result.hands:
+            output = self.obstacle_detector.draw(output, result.obstacle)
         
         # 显示 FPS 信息
         fps = 1000 / result.total_time_ms if result.total_time_ms > 0 else 0
@@ -626,6 +651,13 @@ class CVAssistSystem:
                     if self.tts_engine and result.guidance:
                         if self._should_speak_guidance(result.guidance):
                             self._speak_guidance(result.guidance)
+
+                    # 障碍物检测：高优先级 TTS 警告（打断当前播报）
+                    if result.obstacle and result.obstacle.detected:
+                        if self.tts_engine and result.obstacle.warning_text:
+                            self.tts_engine.clear_queue()  # 清空队列并停止当前播放
+                            self.tts_engine.speak(result.obstacle.warning_text)
+                            logger.warning(f"避障警告: {result.obstacle.warning_text}")
                     
                     # 每 100 帧记录一次统计
                     if self.fps_counter and frame_counter % 100 == 0:
