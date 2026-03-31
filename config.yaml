@@ -3,7 +3,7 @@
 # 注意: 所有配置的默认值已在 config.py 中定义。
 # 本文件仅用于定义不同运行模式（profile）的覆盖值。
 # 使用方式: python main.py --config <profile_name>
-# 可用 profile: fast, voice, tts, mimo-tts
+# 可用 profile: fast, no-voice
 # balanced 模式使用 config.py 中的全部默认值，无需在此定义。
 
 # ---- Profile 预设（仅列出与 config.py 默认值不同的字段） ----
@@ -14,7 +14,7 @@ profiles:
     optimization:
       skip_frames_detection: 3
       skip_frames_depth: 3
-  
+
   no-voice: # 仅视觉处理，无语音交互
     audio:
       enable_asr: false

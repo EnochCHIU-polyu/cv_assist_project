@@ -44,20 +44,14 @@
 通过 `--config` 参数选择预设：
 
 ```bash
-# 默认模式（无语音，适合测试）
+# 默认模式（完整语音，ASR + TTS）
 python main.py
 
-# 仅 TTS 语音播报（部署脚本默认）
-python main.py --config tts
-
-# 完整语音交互
-python main.py --config voice
+# 仅视觉处理，无语音交互
+python main.py --config no-voice
 
 # 性能优先（低配设备）
 python main.py --config fast
-
-# 云端高质量 TTS
-python main.py --config mimo-tts
 ```
 
 ### 设置 API Key
@@ -77,6 +71,12 @@ cp .env.example .env
 
 ### `balanced`（默认）
 
+- ASR：开启 (Whisper base 模型)
+- TTS：开启 (mimo 提供商，语速 180)
+- 适用场景：默认完整体验
+
+### `no-voice`（仅视觉处理）
+
 - ASR：关闭
 - TTS：关闭
 - 适用场景：开发调试、无语音需求的测试
@@ -89,24 +89,6 @@ cp .env.example .env
 | `skip_frames_detection` | 2 | 3 | 检测频率降低，CPU/GPU 负载减少 |
 | `skip_frames_depth` | 2 | 3 | 深度估计频率降低 |
 
-### `voice`（完整语音交互）
-
-- 开启 ASR（Whisper base 模型）
-- 开启 TTS（pyttsx3，语速 180）
-- 适用场景：需要语音控制搜索目标的完整体验
-
-### `tts`（仅语音播报）
-
-- 关闭 ASR
-- 开启 TTS（pyttsx3，语速 180）
-- 适用场景：用户不需要语音输入，只需系统播报引导信息
-
-### `mimo-tts`（云端高质量 TTS）
-
-- 开启 ASR（Whisper medium 模型）
-- 开启 TTS（MiMo 云端）
-- 需要：`.env` 中设置 `MIMO_API_KEY`
-
 ---
 
 ## 模型配置 (ModelConfig)
@@ -117,8 +99,8 @@ cp .env.example .env
 
 | 配置项 | 默认值 | 可选值 | 说明 |
 |--------|--------|--------|------|
-| `owlvit_version` | `"v1"` | `"v1"`, `"v2"` | v2 精度更高但慢 20-30%；v1 速度更快适合实时场景 |
-| `owlvit_model` | `"google/owlvit-base-patch32"` | 任意 HuggingFace 模型路径 | 使用自定义微调模型时修改此项 |
+| `owlvit_version` | `"v2"` | `"v1"`, `"v2"` | v2 精度更高但慢 20-30%；v1 速度更快适合实时场景 |
+| `owlvit_model` | `"google/owlv2-base-patch16-ensemble"` | 任意 HuggingFace 模型路径 | 使用自定义微调模型时修改此项 |
 | `owlvit_input_size` | `(384, 384)` | `(320,320)`, `(384,384)`, `(512,512)`, `(640,640)` | 尺寸越大检测越准但越慢；低配设备用 320，小目标检测用 512 |
 | `owlvit_confidence_threshold` | `0.1` | `0.0 ~ 1.0` | 值越低检测越多（含误检）；值越高越严格（可能漏检）；误检多时提高到 0.2~0.3 |
 
@@ -209,7 +191,7 @@ enter ≤ 偏移 ≤ exit → 保持上一状态
 
 | 配置项 | 默认值 | 可选值 | 说明 |
 |--------|--------|--------|------|
-| `enable_asr` | `False` | `True`, `False` | 启用后可通过麦克风接收语音指令 |
+| `enable_asr` | `True` | `True`, `False` | 启用后可通过麦克风接收语音指令 |
 | `whisper_model` | `"base"` | `"tiny"`, `"base"`, `"small"`, `"medium"`, `"large"` | 模型越大越准但越慢；tiny ~1GB, base ~1.5GB, medium ~5GB, large ~10GB |
 | `asr_language` | `"zh,en"` | `"zh,en"`, `"zh"`, `"en"`, `"auto"` | 指定语言可提高准确率；auto 增加约 100ms 延迟 |
 
@@ -217,12 +199,12 @@ enter ≤ 偏移 ≤ exit → 保持上一状态
 
 | 配置项 | 默认值 | 可选值 | 说明 |
 |--------|--------|--------|------|
-| `enable_tts` | `False` | `True`, `False` | 启用后系统播报检测结果和引导信息 |
-| `tts_provider` | `"pyttsx3"` | `"pyttsx3"`, `"mimo"` | pyttsx3=离线；mimo=云端（需 API Key） |
-| `tts_rate` | `150` | `100 ~ 300` | 语速（每分钟字数）；150 正常偏快，180 较快 |
+| `enable_tts` | `True` | `True`, `False` | 启用后系统播报检测结果和引导信息 |
+| `tts_provider` | `"mimo"` | `"pyttsx3"`, `"mimo"` | pyttsx3=离线；mimo=云端（需 API Key） |
+| `tts_rate` | `180` | `100 ~ 300` | 语速（每分钟字数）；150 正常偏快，180 较快 |
 | `tts_volume` | `1.0` | `0.0 ~ 1.0` | 音量；1.0 最大，0.5 一半 |
 | `tts_async` | `True` | `True`, `False` | 异步不阻塞主循环；同步需等待播报完成 |
-| `tts_instruction_interval_sec` | `3.0` | `1.0 ~ 10.0` | 两次引导播报的最小间隔，防止语音重叠 |
+| `tts_instruction_interval_sec` | `2.0` | `1.0 ~ 10.0` | 两次引导播报的最小间隔，防止语音重叠 |
 | `tts_max_queue_size` | `1` | `1 ~ 5` | 播报队列长度；1=只保留最新消息 |
 
 ### 录音参数
