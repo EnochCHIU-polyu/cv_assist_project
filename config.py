@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 class ModelConfig:
     """模型配置"""
     # OWL-ViT 设置
-    owlvit_version: str = "v1"  # OWL-ViT 版本: "v1" 或 "v2"
+    owlvit_version: str = "v2"  # OWL-ViT 版本: "v1" 或 "v2"
     owlvit_model: str = "google/owlvit-base-patch32"  # 自定义模型名称 (当使用自定义模型时)
     owlvit_input_size: Tuple[int, int] = (384, 384)
     owlvit_confidence_threshold: float = 0.1
