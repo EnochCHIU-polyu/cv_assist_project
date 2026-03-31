@@ -17,4 +17,4 @@ if errorlevel 1 (
 )
 
 REM 始终默认启用 mimo tts 配置；用户传 --config 可覆盖（argparse 后出现的同名参数优先）
-python main.py --config mimo-tts %*
+python main.py %*
