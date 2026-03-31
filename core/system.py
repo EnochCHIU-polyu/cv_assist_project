@@ -96,7 +96,9 @@ class CVAssistSystem:
         logger.info("="*60)
         logger.info(" CV 视觉辅助系统")
         logger.info("="*60)
-        logger.info(f" OWL-ViT: {self.config.model.owlvit_model}")
+        # 根据版本选择合适的模型名称
+        model_name = self.config.model.get_owlvit_model_name() if self.config.model.owlvit_model == self.config.model.get_owlvit_model_name() else self.config.model.owlvit_model
+        logger.info(f" OWL-ViT: {self.config.model.owlvit_version} - {model_name}")
         logger.info(f" MiDaS: {self.config.model.midas_model}")
         logger.info(f" 设备: {self.config.optimization.device}")
         logger.info(f" FP16: {self.config.optimization.use_fp16}")
@@ -144,10 +146,18 @@ class CVAssistSystem:
         
         logger.info("初始化检测器组件...")
         
+        # 根据版本选择模型名称（如果用户没有自定义设置）
+        if cfg.model.owlvit_model == "google/owlvit-base-patch32":
+            # 使用默认模型，根据版本选择
+            owlvit_model = cfg.model.get_owlvit_model_name()
+        else:
+            # 用户自定义模型名称
+            owlvit_model = cfg.model.owlvit_model
+        
         # 初始化 OWL-ViT 目标检测器
         try:
             self.detector = OWLViTDetector(
-                model_name=cfg.model.owlvit_model,
+                model_name=owlvit_model,
                 input_size=cfg.model.owlvit_input_size,
                 confidence_threshold=cfg.model.owlvit_confidence_threshold,
                 use_fp16=opt.use_fp16,

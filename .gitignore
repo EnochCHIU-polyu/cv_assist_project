@@ -12,3 +12,6 @@ logs/
 
 # Environment variables (sensitive data)
 .env
+
+# opencode
+.sisyphus/

@@ -1,6 +1,6 @@
 """
 配置模块
-=======
+===============
 集中管理系统所有组件的配置参数。
 
 配置加载优先级（从高到低）:
@@ -40,9 +40,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelConfig:
-    owlvit_model: str = "google/owlvit-base-patch32"
+    """模型配置"""
+    # OWL-ViT 设置
+    owlvit_version: str = "v1"  # OWL-ViT 版本: "v1" 或 "v2"
+    owlvit_model: str = "google/owlvit-base-patch32"  # 自定义模型名称 (当使用自定义模型时)
     owlvit_input_size: Tuple[int, int] = (384, 384)
     owlvit_confidence_threshold: float = 0.1
+    
+    # 默认模型映射
+    def get_owlvit_model_name(self) -> str:
+        """根据版本返回默认模型名称"""
+        if self.owlvit_version == "v2":
+            return "google/owlv2-base-patch16-ensemble"
+        else:
+            return "google/owlvit-base-patch32"
+    
+    # MiDaS 设置
     midas_model: str = "MiDaS_small"
     midas_scale: float = 0.5
     hand_max_num: int = 1

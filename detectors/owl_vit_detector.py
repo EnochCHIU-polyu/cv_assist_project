@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import torch
 from PIL import Image
-from transformers import OwlViTProcessor, OwlViTForObjectDetection
+from transformers import Owlv2Processor, Owlv2ForObjectDetection
 from typing import List, Dict, Tuple, Optional
 import logging
 from pathlib import Path
@@ -73,10 +73,10 @@ class OWLViTDetector:
         try:
             dtype = torch.float16 if self.use_fp16 else torch.float32
             logger.info("加载 OWL-ViT 处理器...")
-            self.processor = OwlViTProcessor.from_pretrained(model_name)
+            self.processor = Owlv2Processor.from_pretrained(model_name)
             
             logger.info("加载 OWL-ViT 模型...")
-            self.model = OwlViTForObjectDetection.from_pretrained(
+            self.model = Owlv2ForObjectDetection.from_pretrained(
                 model_name, torch_dtype=dtype
             ).to(self.device)
             self.model.eval()
