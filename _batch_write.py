@@ -1,4 +1,21 @@
-"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Batch writer for all config refactor changes. Writes all files then git adds."""
+import os, subprocess
+
+def write_file(path, content):
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(content)
+    os.replace(tmp, path)
+    size = os.path.getsize(path)
+    lines = content.count('\n')
+    print(f'  Wrote {path}: {size} bytes, {lines} lines')
+
+# ============================================================
+# 1. config.py - with comprehensive Chinese documentation
+# ============================================================
+write_file('config.py', '''"""
 配置模块
 ===============
 集中管理系统所有组件的配置参数。
@@ -781,3 +798,82 @@ if __name__ == "__main__":
     name = sys.argv[1] if len(sys.argv) > 1 else "balanced"
     cfg = load_config(profile=name)
     print(json.dumps(_to_dict(cfg), indent=2, ensure_ascii=False))
+''')
+
+# ============================================================
+# 2. config.yaml - profiles only
+# ============================================================
+write_file('config.yaml', '''# CV 视觉辅助系统 - Profile 预设配置
+# ===================================
+# 注意: 所有配置的默认值已在 config.py 中定义。
+# 本文件仅用于定义不同运行模式（profile）的覆盖值。
+# 使用方式: python main.py --config <profile_name>
+# 可用 profile: fast, voice, tts, mimo-tts
+# balanced 模式使用 config.py 中的全部默认值，无需在此定义。
+
+# ---- Profile 预设（仅列出与 config.py 默认值不同的字段） ----
+profiles:
+  fast: # 性能优先，适合低配设备
+    model:
+      owlvit_input_size: [320, 320]
+    optimization:
+      skip_frames_detection: 3
+      skip_frames_depth: 3
+
+  voice: # ASR + TTS 全语音交互
+    audio:
+      enable_asr: true
+      enable_tts: true
+      whisper_model: base
+      tts_rate: 180
+
+  tts: # 仅 TTS 语音播报（默认离线 pyttsx3）
+    audio:
+      enable_tts: true
+      tts_rate: 180
+
+  mimo-tts: # MiMo 云端 TTS
+    audio:
+      enable_asr: true
+      enable_tts: true
+      whisper_model: medium # tiny / base / small / medium / large
+      tts_provider: mimo
+
+# balanced 无额外 override，直接使用 config.py 中的全部默认值。
+''')
+
+# ============================================================
+# 3. .env.example
+# ============================================================
+write_file('.env.example', '''# CV 视觉辅助系统 - 环境变量配置模板
+# ===================================
+# 使用说明:
+# 1. 复制本文件为 .env: copy .env.example .env
+# 2. 将下方的占位值替换为你的真实 API Key
+# 3. 确保 .env 文件不会被提交到版本控制系统（已在 .gitignore 中排除）
+#
+# 注意: .env 文件中的值会覆盖 config.py 和 config.yaml 中的所有同名配置。
+#       这是系统配置的最高优先级来源。
+
+# ---- 小米 MiMo TTS 服务 ----
+# 用于云端语音合成（TTS），音质优于本地 pyttsx3。
+# 获取方式: 访问小米开放平台 (https://open.mi.com/) 申请 MiMo TTS API Key。
+# 使用条件: 在 config.yaml 或 config.py 中设置 tts_provider: "mimo"
+MIMO_API_KEY=your_mimo_api_key_here
+
+# ---- Poe LLM 服务 ----
+# 用于 LLM 视觉增强功能，将摄像头画面发送给大语言模型获取场景理解。
+# 获取方式: 访问 https://poe.com/api 注册并获取 API Key。
+# 使用条件: 在 config.py 中设置 enable_llm_parsing: True
+POE_API_KEY=your_poe_api_key_here
+
+# ---- OpenAI 服务（可选） ----
+# 用于以下场景（任选其一或全部）:
+# 1. 云端 Whisper 语音识别（当本地 Whisper 模型无法满足需求时）
+# 2. OpenAI GPT 系列模型（如果未来扩展支持）
+# 获取方式: 访问 https://platform.openai.com/api-keys 创建 API Key。
+# 注意: 此 Key 为可选，不配置不影响系统核心功能。
+# OPENAI_API_KEY=your_openai_api_key_here
+''')
+
+print('\\nAll files written. Ready to git add and commit.')
