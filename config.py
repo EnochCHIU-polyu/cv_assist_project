@@ -54,13 +54,13 @@ class ModelConfig:
     """
     # ---- OWL-ViT 目标检测设置 ----
 
-    owlvit_version: str = "v1"
+    owlvit_version: str = "v2"
     # OWL-ViT 模型版本。
     # 可选值: "v1" (google/owlvit-base-patch32), "v2" (google/owlv2-base-patch16-ensemble)
     # 效果: v2 检测精度更高，但推理速度比 v1 慢约 20-30%。
     #       v1 适合实时性要求高的场景，v2 适合精度优先的场景。
 
-    owlvit_model: str = "google/owlvit-base-patch32"
+    owlvit_model: str = "google/owlv2-base-patch16-ensemble"
     # OWL-ViT 模型名称或本地模型路径。
     # 默认使用 HuggingFace 官方模型。如需使用微调后的自定义模型，
     # 可在此填入本地路径（如 "models/my-owlvit-finetuned"）。
@@ -272,7 +272,7 @@ class AudioConfig:
 
     # ---- ASR 语音识别设置 ----
 
-    enable_asr: bool = False
+    enable_asr: bool = True
     # 是否启用自动语音识别（ASR）功能。
     # 可选值: True (启用), False (禁用)
     # 效果: 启用后系统可通过麦克风接收用户语音指令。
@@ -293,18 +293,18 @@ class AudioConfig:
 
     # ---- TTS 语音合成设置 ----
 
-    enable_tts: bool = False
+    enable_tts: bool = True
     # 是否启用语音合成（TTS）播报功能。
     # 可选值: True (启用), False (禁用)
     # 效果: 启用后系统会通过 TTS 引擎播报检测结果和引导信息。
 
-    tts_provider: str = "pyttsx3"
+    tts_provider: str = "mimo"
     # TTS 服务提供商。
     # 可选值: "pyttsx3" (离线，使用系统语音引擎), "mimo" (小米 MiMo 云端 TTS)
     # 效果: pyttsx3 无需联网但音质一般；mimo 音质更好但需要 API Key 和网络。
     # 注意: 使用 "mimo" 时需在 .env 中配置 MIMO_API_KEY。
 
-    tts_rate: int = 150
+    tts_rate: int = 180
     # TTS 语速（每分钟字数）。
     # 范围: 100 ~ 300
     # 效果: 值越大语速越快。150 为正常偏快语速，180 为较快语速。
@@ -320,12 +320,12 @@ class AudioConfig:
     # 效果: 异步模式下 TTS 在后台线程播放，不影响视觉检测主循环。
     # 推荐: 保持 True，除非需要确保播报完成后才执行下一步操作。
 
-    tts_instruction_interval_sec: float = 3.0
+    tts_instruction_interval_sec: float = 2.0
     # 两次 TTS 引导播报之间的最小间隔（秒）。
     # 效果: 防止系统过于频繁地播报引导信息，造成语音重叠或干扰。
     # 推荐: 3.0 秒适合实时引导场景。
 
-    tts_grab_repeat_sec: float = 3.0
+    tts_grab_repeat_sec: float = 2.0
     # 抓取引导信息的重复播报间隔（秒）。
     # 效果: 当用户需要抓取引导时，每隔 N 秒重复一次提示。
 

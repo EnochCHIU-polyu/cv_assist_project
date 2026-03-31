@@ -14,24 +14,10 @@ profiles:
     optimization:
       skip_frames_detection: 3
       skip_frames_depth: 3
-
-  voice: # ASR + TTS 全语音交互
+  
+  no-voice: # 仅视觉处理，无语音交互
     audio:
-      enable_asr: true
-      enable_tts: true
-      whisper_model: base
-      tts_rate: 180
-
-  tts: # 仅 TTS 语音播报（默认离线 pyttsx3）
-    audio:
-      enable_tts: true
-      tts_rate: 180
-
-  mimo-tts: # MiMo 云端 TTS
-    audio:
-      enable_asr: true
-      enable_tts: true
-      whisper_model: medium # tiny / base / small / medium / large
-      tts_provider: mimo
+      enable_asr: false
+      enable_tts: false
 
 # balanced 无额外 override，直接使用 config.py 中的全部默认值。
