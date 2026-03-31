@@ -262,7 +262,13 @@ class CVAssistSystem:
         """初始化运行时状态（线程、播报节流、帧缓冲等）。"""
         self._voice_thread = None
         self._voice_in_progress = False
+        self._voice_prompt_playing = False
         self._voice_result_queue = queue.Queue()
+        self._suppress_guidance_until_ts = 0.0
+        self._search_feedback_target = None
+        self._search_feedback_state = "idle"
+        self._target_found_streak = 0
+        self._target_missing_streak = 0
 
         self._last_instruction = None
         self._last_instruction_state = None
@@ -283,6 +289,81 @@ class CVAssistSystem:
         if self.tts_engine:
             self.tts_engine.clear_queue()
 
+    def _suppress_guidance_temporarily(self):
+        """在语音确认后短时抑制普通引导播报。"""
+        duration = max(0.0, float(getattr(self.config.audio, 'guidance_suppress_after_voice_sec', 0.0)))
+        if duration > 0:
+            self._suppress_guidance_until_ts = max(self._suppress_guidance_until_ts, time.time() + duration)
+
+    def _speak_priority_message(self, text: str, block: bool = False):
+        """优先播报重要语音反馈，打断旧队列并短时抑制普通引导。"""
+        if not self.tts_engine or not text or not text.strip():
+            return
+
+        self.tts_engine.stop()
+        self.tts_engine.clear_queue()
+        self._suppress_guidance_temporarily()
+        self.tts_engine.speak(text.strip(), block=block)
+
+    def _speak_serial_feedback(self, text: str, block: bool = False):
+        """将搜索结果反馈串行加入 TTS 队列，不打断当前确认播报。"""
+        if not self.tts_engine or not text or not text.strip():
+            return
+
+        self._suppress_guidance_temporarily()
+        self.tts_engine.speak(text.strip(), block=block)
+
+    def _play_voice_prompt_and_wait(self, text: str):
+        """在开启录音前阻塞播报语音提示，并禁止背景 TTS 打断。"""
+        if not self.tts_engine or not text or not text.strip():
+            return
+
+        self._voice_prompt_playing = True
+        try:
+            self.tts_engine.stop()
+            self.tts_engine.clear_queue()
+            self.tts_engine.speak(text.strip(), block=True)
+        finally:
+            self._voice_prompt_playing = False
+
+    def _begin_target_search_feedback(self, target: str):
+        """为新的语音目标初始化搜索反馈状态。"""
+        target = (target or "").strip()
+        self._search_feedback_target = target or None
+        self._search_feedback_state = "searching" if target else "idle"
+        self._target_found_streak = 0
+        self._target_missing_streak = 0
+
+    def _update_target_search_feedback(self, detections: List[Dict]):
+        """基于当前目标的检测结果播报找到/未找到反馈。"""
+        target = self._search_feedback_target
+        if not target or self._voice_in_progress or self._voice_prompt_playing:
+            return
+
+        cfg = self.config.audio
+        if detections:
+            self._target_found_streak += 1
+            self._target_missing_streak = 0
+            found_threshold = max(1, int(getattr(cfg, 'target_found_frame_threshold', 8)))
+            if self._target_found_streak < found_threshold:
+                return
+            if self._search_feedback_state != "found":
+                self._search_feedback_state = "found"
+                if self.tts_engine and getattr(cfg, 'target_found_feedback_enabled', True):
+                    self._speak_serial_feedback(f"已找到目标主体{target}")
+            return
+
+        self._target_found_streak = 0
+        self._target_missing_streak += 1
+        threshold = max(1, int(getattr(cfg, 'target_missing_frame_threshold', 45)))
+        if self._target_missing_streak < threshold:
+            return
+
+        if self._search_feedback_state != "missing":
+            self._search_feedback_state = "missing"
+            if self.tts_engine and getattr(cfg, 'target_missing_feedback_enabled', True):
+                self._speak_serial_feedback(f"暂未找到目标主体{target}，请调整位置后重试")
+
     def _guidance_state(self, guidance: GuidanceResult) -> str:
         """提取引导语义状态。"""
         return getattr(guidance, 'state', 'ready' if guidance.ready_to_grab else 'moving')
@@ -291,6 +372,10 @@ class CVAssistSystem:
         """根据节流规则判断是否应播报当前引导。"""
         cfg = self.config.audio
         now = time.time()
+        if self._voice_in_progress or self._voice_prompt_playing:
+            return False
+        if now < self._suppress_guidance_until_ts:
+            return False
         state = self._guidance_state(guidance)
 
         if state in ('ready', 'grabbed'):
@@ -356,15 +441,16 @@ class CVAssistSystem:
                 self.config.target_queries = [target]
                 self.cached_detections = []
                 self._reset_tts_context()
+                self._begin_target_search_feedback(target)
                 logger.info(f"检测目标已更新为: {target}")
-                if self.tts_engine:
-                    self.tts_engine.speak(f"正在寻找{target}")
+                if self.tts_engine and getattr(self.config.audio, 'voice_feedback_on_target_confirm', True):
+                    self._speak_priority_message(f"开始寻找目标主体{target}")
             else:
                 message = result.get('message')
                 if message:
                     logger.warning(message)
                     if self.tts_engine:
-                        self.tts_engine.speak(message)
+                        self._speak_priority_message(message)
     
     def process_frame(self, frame: np.ndarray,
                       queries: Optional[List[str]] = None) -> FrameResult:
@@ -522,7 +608,7 @@ class CVAssistSystem:
         """
         try:
             if self.tts_engine:
-                self.tts_engine.speak("正在录音，请说出您要找的物品")
+                self._play_voice_prompt_and_wait("正在录音，请给出描述")
             logger.info("=== 开始语音录制 ===")
             
             # 录制音频
@@ -544,7 +630,10 @@ class CVAssistSystem:
             
             logger.info(f"录音完成，开始识别...")
             if self.tts_engine:
-                self.tts_engine.speak("正在识别")
+                if getattr(cfg, 'voice_feedback_after_recording', True):
+                    self._speak_priority_message("语音录入结束，正在识别")
+                else:
+                    self.tts_engine.speak("正在识别")
             
             # 语音识别
             result = self.asr_engine.transcribe_audio(audio, cfg.record_sample_rate)
@@ -672,6 +761,7 @@ class CVAssistSystem:
                 try:
                     result = self.process_frame(frame)
                     frame_counter += 1
+                    self._update_target_search_feedback(result.detections)
                     
                     # 如果启用了TTS且有引导指令，播放语音
                     if self.tts_engine and result.guidance:
