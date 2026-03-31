@@ -86,7 +86,7 @@ class GuidanceConfig:
 class AudioConfig:
     enable_asr: bool = False
     whisper_model: str = "base"
-    asr_language: str = "en"
+    asr_language: str = "zh,en"
     enable_tts: bool = False
     tts_provider: str = "pyttsx3"
     tts_rate: int = 150
@@ -104,6 +104,13 @@ class AudioConfig:
     auto_detect_silence: bool = True
     silence_threshold: float = 0.01
     silence_duration: float = 1.5
+    voice_feedback_after_recording: bool = True
+    voice_feedback_on_target_confirm: bool = True
+    target_found_feedback_enabled: bool = True
+    target_found_frame_threshold: int = 8
+    target_missing_feedback_enabled: bool = True
+    target_missing_frame_threshold: int = 45
+    guidance_suppress_after_voice_sec: float = 1.5
 
 
 @dataclass

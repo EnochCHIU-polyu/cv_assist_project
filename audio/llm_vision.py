@@ -144,15 +144,16 @@ class LLMVisionParser:
             f"Instructions:\n"
             f"1. Extract the most likely target object from the user's speech.\n"
             f"2. Consider what objects might be visible in the provided frame(s).\n"
-            f"3. Return a simple, common object name suitable for object detection (e.g., 'phone', 'cup', 'chair').\n"
+            f"3. Return a simple, common English object phrase suitable for object detection and include the indefinite article when natural (e.g., 'a bottle', 'a cup', 'a chair').\n"
             f"4. Ignore filler words, background noise, and spoken artifacts.\n"
-            f"5. If you cannot determine the object, return the most reasonable guess based on context.\n\n"
+            f"5. If the user mentions an object without an article, normalize it to the article form such as 'bottle' -> 'a bottle'.\n"
+            f"6. If you cannot determine the object, return the most reasonable guess based on context.\n\n"
             f"Return ONLY a JSON object in this exact format:\n"
-            f'{{"target": "<object_name>"}}\n\n'
+            f'{{"target": "<object_phrase>"}}\n\n'
             f"Example responses:\n"
-            f'{{"target": "phone"}}\n'
-            f'{{"target": "cup"}}\n'
-            f'{{"target": "water bottle"}}\n\n'
+            f'{{"target": "a phone"}}\n'
+            f'{{"target": "a cup"}}\n'
+            f'{{"target": "a bottle"}}\n\n'
             f"Do not include any other text, only the JSON."
         )
         return prompt

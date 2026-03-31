@@ -25,7 +25,9 @@ profiles:
 
   mimo-tts: # MiMo 云端 TTS
     audio:
+      enable_asr: true
       enable_tts: true
+      whisper_model: medium # tiny / base / small / medium / large
       tts_provider: mimo
 
 # balanced 无额外 override，直接使用下方基础配置。
@@ -70,8 +72,8 @@ guidance:
 
 audio:
   enable_asr: false
-  whisper_model: "base"
-  asr_language: "en"
+  whisper_model: "medium" # tiny / base / small / medium / large
+  asr_language: "zh,en" # bilingual zh/en / auto / zh / en
   enable_tts: false
   tts_provider: "pyttsx3"
   tts_rate: 150
@@ -87,7 +89,14 @@ audio:
   record_duration: 5.0
   auto_detect_silence: true
   silence_threshold: 0.01
-  silence_duration: 1.5
+  silence_duration: 1.0
+  voice_feedback_after_recording: true
+  voice_feedback_on_target_confirm: true
+  target_found_feedback_enabled: true
+  target_found_frame_threshold: 8
+  target_missing_feedback_enabled: true
+  target_missing_frame_threshold: 45
+  guidance_suppress_after_voice_sec: 1.5
 
 llm_vision:
   enable_llm_parsing: true

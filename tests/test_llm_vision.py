@@ -287,6 +287,8 @@ class TestLLMVisionPrompt:
         assert "2 consecutive camera frame" in prompt
         assert '{"target":' in prompt
         assert "JSON" in prompt
+        assert '"a bottle"' in prompt
+        assert "include the indefinite article" in prompt
 
 
 class TestFrameEncoding:

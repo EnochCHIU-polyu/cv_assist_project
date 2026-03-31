@@ -34,22 +34,23 @@ class ASREngine:
     - large: 最准确，速度慢 (~1550M)
     """
     
-    def __init__(self, 
+    def __init__(self,
                  model_name: str = "base",
                  device: str = "cuda",
-                 language: str = "zh"):
+                 language: str = "zh,en"):
         """
         初始化 ASR 引擎
         
         参数:
             model_name: Whisper 模型名称 (tiny/base/small/medium/large)
             device: 运行设备 ('cuda' 或 'cpu')
-            language: 语言代码 ('zh' 中文, 'en' 英文等)
+            language: 语言代码 ('zh,en' 中英双语自动判断, 'auto' 全语言自动检测, 'zh' 中文, 'en' 英文等)
         """
         if not WHISPER_AVAILABLE:
             raise RuntimeError("Whisper 未安装。请运行: pip install openai-whisper")
         
         self.model_name = model_name
+        language = (language or "auto").strip().lower()
         self.language = language
         
         # 自动检测设备
@@ -58,7 +59,13 @@ class ASREngine:
             device = "cpu"
         self.device = device
         
-        logger.info(f"正在加载 Whisper 模型: {model_name} (设备: {device})")
+        if self.language == "zh,en":
+            lang_desc = "bilingual zh/en"
+        elif self.language == "auto":
+            lang_desc = "auto-detect"
+        else:
+            lang_desc = self.language
+        logger.info(f"正在加载 Whisper 模型: {model_name} (设备: {device}, 语言: {lang_desc})")
         
         try:
             # 加载 Whisper 模型
@@ -72,6 +79,43 @@ class ASREngine:
             logger.error(f"Whisper 模型加载失败: {e}")
             raise
     
+    def _detect_language_from_audio_array(self, audio_data: np.ndarray) -> str:
+        """从音频波形中检测语言。"""
+        audio_data = whisper.pad_or_trim(audio_data.astype(np.float32))
+        mel = whisper.log_mel_spectrogram(audio_data).to(self.model.device)
+        _, probs = self.model.detect_language(mel)
+        return max(probs, key=probs.get)
+
+    def _resolve_language_for_audio(self, audio_data: np.ndarray) -> str:
+        """将配置语言解析为实际用于本次识别的语言。"""
+        if self.language == "auto":
+            return self._detect_language_from_audio_array(audio_data)
+
+        if self.language == "zh,en":
+            audio_data = whisper.pad_or_trim(audio_data.astype(np.float32))
+            mel = whisper.log_mel_spectrogram(audio_data).to(self.model.device)
+            _, probs = self.model.detect_language(mel)
+            zh_prob = probs.get("zh", 0.0)
+            en_prob = probs.get("en", 0.0)
+            return "zh" if zh_prob >= en_prob else "en"
+
+        return self.language
+
+    def _build_transcribe_kwargs(self, audio_data: Optional[np.ndarray] = None) -> tuple[dict, str]:
+        kwargs = {
+            'verbose': False,
+            'fp16': (self.device == "cuda")
+        }
+        resolved_language = self.language
+        if audio_data is not None:
+            resolved_language = self._resolve_language_for_audio(audio_data)
+        elif self.language != "auto":
+            resolved_language = self.language
+
+        if resolved_language != "auto":
+            kwargs['language'] = resolved_language
+        return kwargs, resolved_language
+
     def transcribe_file(self, audio_path: str, return_timestamps: bool = False) -> dict:
         """
         转录音频文件
@@ -88,13 +132,14 @@ class ASREngine:
         """
         try:
             logger.debug(f"开始转录: {audio_path}")
-            
+
+            audio_data = whisper.load_audio(audio_path)
+            kwargs, resolved_language = self._build_transcribe_kwargs(audio_data)
+
             # 使用 Whisper 转录
             result = self.model.transcribe(
                 audio_path,
-                language=self.language,
-                verbose=False,
-                fp16=(self.device == "cuda")  # GPU 使用 FP16 加速
+                **kwargs
             )
             
             text = result['text'].strip()
@@ -102,7 +147,7 @@ class ASREngine:
             
             output = {
                 'text': text,
-                'language': result.get('language', self.language)
+                'language': result.get('language', resolved_language)
             }
             
             if return_timestamps:
@@ -135,13 +180,13 @@ class ASREngine:
                 audio_data = audio_data / np.abs(audio_data).max()
             
             logger.debug(f"转录音频数据: {len(audio_data)} samples @ {sample_rate}Hz")
-            
+
+            kwargs, resolved_language = self._build_transcribe_kwargs(audio_data)
+
             # 使用 Whisper 转录
             result = self.model.transcribe(
                 audio_data,
-                language=self.language,
-                verbose=False,
-                fp16=(self.device == "cuda")
+                **kwargs
             )
             
             text = result['text'].strip()
@@ -149,7 +194,7 @@ class ASREngine:
             
             return {
                 'text': text,
-                'language': result.get('language', self.language)
+                'language': result.get('language', resolved_language)
             }
             
         except Exception as e:
