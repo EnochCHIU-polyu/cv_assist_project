@@ -82,7 +82,7 @@ class ModelConfig:
 
     # ---- MiDaS 深度估计设置 ----
 
-    midas_model: str = "MiDaS_small"
+    midas_model: str = "DPT_Large"
     # MiDaS 深度估计模型名称。
     # 可选值: "MiDaS_small" (最快，精度较低), "DPT_Large" (最慢，精度最高),
     #        "DPT_Hybrid" (中等速度，中等精度)
@@ -255,11 +255,11 @@ class GuidanceConfig:
     # 效果: 值越小释放响应越快，但可能因短暂遮挡误判为释放。
     # 推荐: 3 帧（约 0.1 秒 @ 30fps），快速响应释放动作。
 
-    hand_stable_frames: int = 10
+    hand_stable_frames: int = 5
     # 手部稳定出现所需的连续帧数，达到后才开始输出移动引导指令。
     # 含义: 手部进入画面后必须连续出现 N 帧，才视为"手部稳定"，引导播报才开始触发。
     # 效果: 避免手部短暂入画时立即播报，减少误触发。
-    # 推荐: 10 帧（约 0.3 秒 @ 30fps）。
+    # 推荐: 5 帧（约 0.17 秒 @ 30fps）。
 
 
 @dataclass

@@ -399,10 +399,7 @@ class CVAssistSystem:
                 self.tts_engine.speak_lifecycle(text_stripped)
             finally:
                 self._lifecycle_speaking = False
-                self._suppress_guidance_until_ts = max(
-                    self._suppress_guidance_until_ts,
-                    time.time() + suppress_sec
-                )
+                self._suppress_guidance_until_ts = 0.0
                 self._lifecycle_tts_lock.release()
 
         threading.Thread(target=_worker, daemon=True).start()
