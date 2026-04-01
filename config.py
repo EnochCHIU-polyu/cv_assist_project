@@ -73,7 +73,7 @@ class ModelConfig:
     #       (320, 320) 适合低配设备或高帧率场景；(512, 512) 适合小目标检测。
     # 推荐: 默认 (384, 384) 在精度和速度之间取得良好平衡。
 
-    owlvit_confidence_threshold: float = 0.1
+    owlvit_confidence_threshold: float = 0.3
     # OWL-ViT 检测置信度阈值。低于此值的检测结果将被过滤。
     # 范围: 0.0 ~ 1.0
     # 效果: 值越低检测到的目标越多（包含更多误检）；值越高检测越严格（可能漏检）。
@@ -103,7 +103,7 @@ class ModelConfig:
     # 效果: 设为 2 可同时检测双手，但 MediaPipe 计算开销增加约 50%。
     # 推荐: 单手操作场景设为 1；需要双手交互场景设为 2。
 
-    hand_min_confidence: float = 0.5
+    hand_min_confidence: float = 0.2
     # 手部检测最小置信度阈值。
     # 范围: 0.0 ~ 1.0
     # 效果: 值越高手部检测越严格（可能漏检部分手部）；值越低越容易检测到手部（可能误检）。
@@ -235,15 +235,15 @@ class GuidanceConfig:
     vertical_threshold_exit: int = 36
     # 垂直方向"退出对准状态"的阈值（像素）。
 
-    depth_threshold_enter: float = 0.12
+    depth_threshold_enter: float = 0.2
     # 深度方向"进入对准状态"的阈值（归一化值）。
 
-    depth_threshold_exit: float = 0.18
+    depth_threshold_exit: float = 0.3
     # 深度方向"退出对准状态"的阈值（归一化值）。
 
     # ---- 抓取状态判定 ----
 
-    grasp_stable_frames: int = 8
+    grasp_stable_frames: int = 5
     # 判定"抓取稳定"所需的连续帧数。
     # 含义: 目标必须连续 N 帧保持在"对准"区域内，才判定为抓取稳定。
     # 效果: 值越大判定越严格（减少误触发），但响应延迟增加。
@@ -254,6 +254,12 @@ class GuidanceConfig:
     # 含义: 目标连续 N 帧不在"对准"区域内，判定为已释放。
     # 效果: 值越小释放响应越快，但可能因短暂遮挡误判为释放。
     # 推荐: 3 帧（约 0.1 秒 @ 30fps），快速响应释放动作。
+
+    hand_stable_frames: int = 10
+    # 手部稳定出现所需的连续帧数，达到后才开始输出移动引导指令。
+    # 含义: 手部进入画面后必须连续出现 N 帧，才视为"手部稳定"，引导播报才开始触发。
+    # 效果: 避免手部短暂入画时立即播报，减少误触发。
+    # 推荐: 10 帧（约 0.3 秒 @ 30fps）。
 
 
 @dataclass
@@ -278,7 +284,7 @@ class AudioConfig:
     # 效果: 启用后系统可通过麦克风接收用户语音指令。
     # 注意: 启用后需安装 whisper 相关依赖。
 
-    whisper_model: str = "base"
+    whisper_model: str = "medium"
     # Whisper 语音识别模型大小。
     # 可选值: "tiny" (最快), "base" (推荐), "small", "medium", "large" (最准)
     # 效果: 模型越大识别准确率越高，但内存占用和推理时间也越大。
@@ -304,7 +310,7 @@ class AudioConfig:
     # 效果: pyttsx3 无需联网但音质一般；mimo 音质更好但需要 API Key 和网络。
     # 注意: 使用 "mimo" 时需在 .env 中配置 MIMO_API_KEY。
 
-    tts_rate: int = 180
+    tts_rate: int = 200
     # TTS 语速（每分钟字数）。
     # 范围: 100 ~ 300
     # 效果: 值越大语速越快。150 为正常偏快语速，180 为较快语速。
@@ -320,12 +326,11 @@ class AudioConfig:
     # 效果: 异步模式下 TTS 在后台线程播放，不影响视觉检测主循环。
     # 推荐: 保持 True，除非需要确保播报完成后才执行下一步操作。
 
-    tts_instruction_interval_sec: float = 2.0
-    # 两次 TTS 引导播报之间的最小间隔（秒）。
+    tts_instruction_interval_sec: float = 3    # 两次 TTS 引导播报之间的最小间隔（秒）。
     # 效果: 防止系统过于频繁地播报引导信息，造成语音重叠或干扰。
     # 推荐: 3.0 秒适合实时引导场景。
 
-    tts_grab_repeat_sec: float = 2.0
+    tts_grab_repeat_sec: float = 1.5
     # 抓取引导信息的重复播报间隔（秒）。
     # 效果: 当用户需要抓取引导时，每隔 N 秒重复一次提示。
 
@@ -413,6 +418,11 @@ class AudioConfig:
     # 触发"目标丢失"反馈所需的连续未检测帧数。
     # 效果: 值越大容忍短暂丢失的时间越长。
     # 推荐: 45 帧（约 1.5 秒 @ 30fps），避免因短暂遮挡误报"丢失"。
+
+    target_missing_repeat_interval_sec: float = 30.0
+    # 未进入任务时"暂未找到目标"提示的重复播报间隔（秒）。
+    # 效果: 在非任务状态下，每隔此秒数重复提醒用户调整位置。任务进行中不重复。
+    # 推荐: 30.0 秒。
 
     guidance_suppress_after_voice_sec: float = 1.5
     # 语音交互后抑制引导播报的时间（秒）。
@@ -513,6 +523,36 @@ class LoggingConfig:
     # 效果: 值越大 FPS 数据越平滑但响应越慢；值越小 FPS 波动越大但响应越快。
     # 推荐: 30 帧（约 1 秒 @ 30fps）在平滑度和实时性之间取得平衡。
 
+    enable_task_metrics: bool = True
+    # 是否启用任务指标采集与报告写入功能。
+    # 效果: 启用后每次任务结束时会将详细指标异步写入 task_metrics_dir 指定目录。
+
+    task_metrics_dir: str = "logs/task_metrics"
+    # 任务指标报告输出目录。
+    # 效果: 系统会在此目录下生成按任务命名的 JSON 报告文件。
+    # 注意: 目录不存在时会自动创建。
+
+    task_metrics_interval_sec: float = 1.0
+    # 任务实时摘要输出周期（秒）。
+    # 效果: 任务进行中每隔此秒数向日志输出一次实时指标摘要。
+    # 推荐: 1.0 秒。
+
+    task_ready_confirm_window_sec: float = 2.0
+    # 任务就绪确认时间窗口（秒）。
+    # 效果: 目标进入就绪状态后，需在此时间窗口内完成抓取确认。
+    # 推荐: 2.0 秒。
+
+    task_start_confirm_window_sec: float = 4.0
+    # 任务开始确认时间窗口（秒）。
+    # 效果: 语音触发后，目标需持续被稳定检测 task_start_confirm_window_sec 秒，
+    #       才正式激活任务（开始计时与指标采集）。
+    # 推荐: 4.0 秒，过滤误检和短暂扫过。
+
+    task_lost_target_window_sec: float = 4.0
+    # 目标丢失判定时间窗口（秒）。
+    # 效果: 目标连续消失超过此秒数后，判定为目标丢失并终止任务。
+    # 推荐: 4.0 秒，避免短暂遮挡导致误判终止。
+
 
 @dataclass
 class SystemConfig:
@@ -546,21 +586,26 @@ class SystemConfig:
     llm_vision: LLMVisionConfig = field(default_factory=LLMVisionConfig)
     # LLM 视觉增强配置（Poe API、模型选择）
 
-    target_queries: List[str] = field(default_factory=lambda: ["a cup", "a bottle"])
+    target_queries: List[str] = field(default_factory=list)
     # 默认检测目标列表（OWL-ViT 的文本查询条件）。
-    # 效果: 系统会检测画面中符合这些文本描述的物体。
+    # 效果: 系统会检测画面中符合这些文本描述的物体。启动时为空，等待语音指令指定目标。
     # 格式: 使用英文名词短语，如 "a cup", "a bottle", "a person"。
     # 注意: 此值可在运行时被 core/system.py 动态修改。
 
-    camera_width: int = 640
+    camera_id: int = 1
+    # 摄像头设备 ID。
+    # 效果: 对应系统摄像头编号，0 为默认摄像头，多摄像头时可设为 1、2 等。
+    # 推荐: 单摄像头环境保持默认 0。
+
+    camera_width: int = 848
     # 摄像头采集画面宽度（像素）。
-    # 可选值: 320 / 640 / 1280 / 1920
+    # 可选值: 320 / 640 / 848 / 1280 / 1920
     # 效果: 分辨率越高画面细节越丰富，但处理速度越慢。
-    # 推荐: 640 在大多数 USB 摄像头和性能之间取得平衡。
+    # 推荐: 848x480 在画质与性能之间取得平衡。
 
     camera_height: int = 480
     # 摄像头采集画面高度（像素）。
-    # 推荐: 与 camera_width 配合使用，640x480 (4:3) 或 1280x720 (16:9)。
+    # 推荐: 与 camera_width 配合使用，848x480 (16:9) 或 640x480 (4:3)。
 
 
 # ---------------------------------------------------------------------------
@@ -652,6 +697,8 @@ def _flatten_camera(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     if 'camera' in data and isinstance(data['camera'], dict):
         cam = data.pop('camera')
+        if 'id' in cam:
+            data['camera_id'] = cam['id']
         if 'width' in cam:
             data['camera_width'] = cam['width']
         if 'height' in cam:
