@@ -103,7 +103,7 @@ class ModelConfig:
     # 效果: 设为 2 可同时检测双手，但 MediaPipe 计算开销增加约 50%。
     # 推荐: 单手操作场景设为 1；需要双手交互场景设为 2。
 
-    hand_min_confidence: float = 0.35
+    hand_min_confidence: float = 0.2
     # 手部检测最小置信度阈值。
     # 范围: 0.0 ~ 1.0
     # 效果: 值越高手部检测越严格（可能漏检部分手部）；值越低越容易检测到手部（可能误检）。
@@ -235,15 +235,15 @@ class GuidanceConfig:
     vertical_threshold_exit: int = 36
     # 垂直方向"退出对准状态"的阈值（像素）。
 
-    depth_threshold_enter: float = 0.12
+    depth_threshold_enter: float = 0.2
     # 深度方向"进入对准状态"的阈值（归一化值）。
 
-    depth_threshold_exit: float = 0.18
+    depth_threshold_exit: float = 0.3
     # 深度方向"退出对准状态"的阈值（归一化值）。
 
     # ---- 抓取状态判定 ----
 
-    grasp_stable_frames: int = 8
+    grasp_stable_frames: int = 5
     # 判定"抓取稳定"所需的连续帧数。
     # 含义: 目标必须连续 N 帧保持在"对准"区域内，才判定为抓取稳定。
     # 效果: 值越大判定越严格（减少误触发），但响应延迟增加。

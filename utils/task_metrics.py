@@ -221,7 +221,11 @@ class TaskMetricsCollector:
         if not in_window:
             return
 
-        if frame_metrics.gesture == "closed" or frame_metrics.guidance_state == "grabbed":
+        # 仅在当前帧手部仍处于对准就绪状态时，才允许 closed/grabbed 触发成功
+        hand_still_ready = frame_metrics.ready_to_grab
+        if hand_still_ready and (
+            frame_metrics.gesture == "closed" or frame_metrics.guidance_state == "grabbed"
+        ):
             self.closed_after_ready_flag = True
             self.pending_end_reason = self.pending_end_reason or "success"
             self.task_state = "finishing"
