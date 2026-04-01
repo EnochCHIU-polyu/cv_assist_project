@@ -11,8 +11,10 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional
+
+_HKT = timezone(timedelta(hours=8))
 
 logger = logging.getLogger(__name__)
 
@@ -412,6 +414,15 @@ class TaskMetricsCollector:
         }
         if value_zh is not None:
             entry["value_zh"] = value_zh
+        _ts_suffixes = ("_ts", "_time", "_at")
+        if (
+            isinstance(value, (int, float))
+            and value
+            and any(en_name.endswith(s) for s in _ts_suffixes)
+        ):
+            entry["value_hkt"] = datetime.fromtimestamp(value, tz=_HKT).strftime(
+                "%Y-%m-%d %H:%M:%S.%f"
+            )[:-3] + " HKT"
         return entry
 
     @staticmethod
@@ -501,6 +512,6 @@ class AsyncReportWriter:
         os.replace(tmp_path, envelope.output_path)
 
     def build_output_path(self, task_id: str, created_at: Optional[float] = None) -> str:
-        ts = datetime.fromtimestamp(created_at or time.time()).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.fromtimestamp(created_at or time.time(), tz=_HKT).strftime("%Y%m%d_%H%M%S")
         filename = f"task_metrics_{ts}_{task_id}.json"
         return os.path.join(self.output_dir, filename)
