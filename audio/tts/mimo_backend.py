@@ -266,6 +266,22 @@ class MiMoTTS(BaseTTS):
         """播放引导指令"""
         self.speak(instruction)
 
+    def speak_lifecycle(self, text: str):
+        """播报任务生命周期提示，直接合成并独占播放通道，不走队列，不可被打断。"""
+        if not text or not text.strip():
+            return
+        text = text.strip()
+        logger.info(f"MiMo TTS 生命周期播报: '{text}'")
+        try:
+            # 停止当前播放并清空队列，确保本条优先
+            self.stop()
+            self.clear_queue()
+            # 直接在调用线程内合成并播放，绕过 speech_queue
+            audio_bytes = self._synthesize(text)
+            self._play_audio(audio_bytes)
+        except Exception as e:
+            logger.error(f"MiMo TTS 生命周期播报失败: {e}", exc_info=True)
+
     def stop(self):
         """停止当前播放"""
         try:
