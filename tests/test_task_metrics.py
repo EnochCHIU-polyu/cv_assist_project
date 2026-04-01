@@ -77,7 +77,7 @@ class TaskMetricsCollectorTests(unittest.TestCase):
         collector = TaskMetricsCollector(
             grasp_stable_frames=3,
             ready_confirm_window_sec=1.5,
-            lost_target_frame_threshold=5,
+            lost_target_window_sec=5.0,
         )
         collector.start_task("task_0001", "a bottle", 100.0, "session-1")
         collector.record_voice_metrics(500.0, 120.0, "find bottle")
@@ -102,13 +102,13 @@ class TaskMetricsCollectorTests(unittest.TestCase):
         collector = TaskMetricsCollector(
             grasp_stable_frames=3,
             ready_confirm_window_sec=1.5,
-            lost_target_frame_threshold=3,
+            lost_target_window_sec=0.5,
         )
         collector.start_task("task_0002", "a cup", 200.0, "session-1")
 
         collector.record_frame(self._frame(frame_index=1, frame_end_ts=200.1, target_visible=False, has_target=False, detections_count=0, has_guidance=False, guidance_state="idle"))
-        collector.record_frame(self._frame(frame_index=2, frame_end_ts=200.2, target_visible=False, has_target=False, detections_count=0, has_guidance=False, guidance_state="idle"))
-        collector.record_frame(self._frame(frame_index=3, frame_end_ts=200.3, target_visible=False, has_target=False, detections_count=0, has_guidance=False, guidance_state="idle"))
+        collector.record_frame(self._frame(frame_index=2, frame_end_ts=200.4, target_visible=False, has_target=False, detections_count=0, has_guidance=False, guidance_state="idle"))
+        collector.record_frame(self._frame(frame_index=3, frame_end_ts=200.7, target_visible=False, has_target=False, detections_count=0, has_guidance=False, guidance_state="idle"))
 
         self.assertEqual(collector.should_finish_task(), "lost_target")
         self.assertFalse(collector.should_emit_report())
@@ -117,7 +117,7 @@ class TaskMetricsCollectorTests(unittest.TestCase):
         collector = TaskMetricsCollector(
             grasp_stable_frames=3,
             ready_confirm_window_sec=1.5,
-            lost_target_frame_threshold=3,
+            lost_target_window_sec=3.0,
         )
         collector.start_task("task_0002b", "a bottle", 210.0, "session-1")
         collector.record_frame(self._frame(frame_index=1, frame_end_ts=210.1, target_visible=True, has_target=True))
@@ -128,7 +128,7 @@ class TaskMetricsCollectorTests(unittest.TestCase):
         collector = TaskMetricsCollector(
             grasp_stable_frames=3,
             ready_confirm_window_sec=1.5,
-            lost_target_frame_threshold=3,
+            lost_target_window_sec=3.0,
         )
         collector.start_task("task_0003", "a phone", 300.0, "session-1")
         collector.record_frame(self._frame(frame_index=1, frame_end_ts=300.1))
@@ -142,7 +142,7 @@ class TaskMetricsCollectorTests(unittest.TestCase):
         collector = TaskMetricsCollector(
             grasp_stable_frames=3,
             ready_confirm_window_sec=1.5,
-            lost_target_frame_threshold=3,
+            lost_target_window_sec=3.0,
         )
         collector.start_task("task_0004", "a bottle", 400.0, "session-1")
         collector.record_voice_metrics(10611.5, 864.2, "find bottle")
